@@ -5,14 +5,10 @@ require('dotenv').config();
 const fs = require('fs');
 const TelegramBot = require('node-telegram-bot-api');
 
+console.log("🔍 BOT_TOKEN from env:", process.env.BOT_TOKEN ? "✅ موجود" : "❌ مفقود");
 
-// 🔑 جلب التوكن من المتغيرات
-console.log("🚀 BOT_TOKEN from env:", process.env.BOT_TOKEN ? "✅ موجود" : "❌ غير موجود");
+const token = process.env.BOT_TOKEN;
 if (!token) throw new Error("❌ BOT_TOKEN غير موجود في البيئة!");
-
-const bot = new TelegramBot(token, { polling: true });
-let botUsername = null;
-
 // ==================================================
 // 💾 بيانات اللاعبين
 let players = {};
