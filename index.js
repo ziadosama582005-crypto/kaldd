@@ -119,7 +119,7 @@ bot.getMe().then((me) => {
 });
 
 // ==================================================
-// 🏁 /start
+// 🏁 /start — ترحيب محسّن بالكامل
 bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   const user = msg.from;
   const chatId = msg.chat.id;
@@ -165,18 +165,25 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
     return;
   }
 
-  const welcome = `👋 أهلاً ${player.name}!
-🎯 نقاطك الحالية: ${player.points} نقطة.
-🎮 الأوامر المتاحة:
-• /newgame - بدء لعبة في القروب
-• /challenge - تحدي صديق
-• /نقاطي - عرض نقاطك
-• /setteam <اسم الفريق> - تعيين فريقك
-• /نتائج_الفريق - عرض نتائج الفرق
+  // 👋 ترحيب احترافي جديد
+  const welcome = `
+👋 أهلاً وسهلاً بك يا *${player.name}*!  
+مرحباً بك في لعبة **XO Bot** — التحدي الذكي 🤖🎮  
 
-استمتع وابدأ اللعب الآن! 😄`;
+🎯 *نقاطك الحالية:* \`${player.points}\` نقطة  
+✨ كل فوز = +10، تعادل = +5، خسارة = +2  
 
-  bot.sendMessage(chatId, welcome);
+🧠 الأوامر المتاحة:
+• /newgame — بدء لعبة في القروب  
+• /challenge — تحدي صديق في الخاص  
+• /نقاطي — عرض نقاطك الحالية  
+• /setteam <اسم الفريق> — لتعيين فريقك  
+• /نتائج_الفريق — عرض نتائج الفرق  
+
+🏆 ابدأ اللعب الآن وكن أسطورة XO!  
+`;
+
+  bot.sendMessage(chatId, welcome, { parse_mode: "Markdown" });
 });
 
 // ==================================================
@@ -283,10 +290,12 @@ bot.on("callback_query", async (query) => {
       (games[id].p1.id === from.id || games[id].p2.id === from.id)
   );
 
-  if (!gameId) return bot.answerCallbackQuery(query.id, { text: "⚠️ لا توجد لعبة نشطة!" });
+  if (!gameId)
+    return bot.answerCallbackQuery(query.id, { text: "⚠️ لا توجد لعبة نشطة!" });
   const game = games[gameId];
   const [i, j] = data.split(",").map(Number);
-  if (game.board[i][j] !== " ") return bot.answerCallbackQuery(query.id, { text: "❗ هذه الخانة مشغولة!" });
+  if (game.board[i][j] !== " ")
+    return bot.answerCallbackQuery(query.id, { text: "❗ هذه الخانة مشغولة!" });
 
   const symbol = game.turn;
   game.board[i][j] = symbol;
