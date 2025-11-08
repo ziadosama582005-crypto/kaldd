@@ -297,12 +297,12 @@ bot.getMe().then((me) => {
   // تسجيل أوامر البوت لتظهر في قائمة الأوامر داخل Telegram
   // أوامر البوت يجب أن تكون بحروف إنجليزية صغيرة أو أرقام أو شرطات سفلية. لا يمكن استخدام أحرف عربية هنا.
   bot.setMyCommands([
-    { command: 'start', description: 'بدء الاستخدام' },
+    { command: 'start', description: 'بدء الاستخدام والترحيب' },
+    { command: 'newgame', description: 'بدء لعبة ثنائية في القروب' },
+    { command: 'newgame6', description: 'بدء تحدي 3 ضد 3 في القروب' },
     { command: 'challenge', description: 'تحدي صديق في الخاص' },
-    { command: 'newgame', description: 'تحدي صديقك في القروب' },
-    { command: 'newgame6', description: ' تحدي 3 ضد 3 في القروب' },
-    { command: 'profile', description: 'عرض ملفك الشخصي' },
-    { command: 'board', description: 'عرض النتائج' },
+    { command: 'profile', description: 'عرض ملفك الشخصي وإحصائياتك' },
+    { command: 'board', description: 'عرض لوحة النتائج' },
     { command: 'tournament', description: 'بدء بطولة 4 ضد 4 فى القروب' },
   ]);
 });
@@ -381,11 +381,11 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
     '</code> نقطة\n' +
     '✨ الفوز يمنح +10 نقاط، التعادل لا نقاط، ولا نقاط للخاسر\n\n' +
     '🧠 الأوامر المتاحة:\n' +
-     '• /challenge — تحدي صديق في الخاص\n' +
-    '• /newgame — تحدي صديقك في القروب\n' +
-    '• /newgame6 —  تحدي 3 ضد 3 في القروب\n' +
-    '• /profile — عرض ملفك الشخصي\n' +
-    '• /board — عرض النتائج \n' +
+    '• /newgame — بدء لعبة ثنائية في القروب\n' +
+    '• /newgame6 — بدء تحدي 3 ضد 3 في القروب\n' +
+    '• /challenge — تحدي صديق في الخاص\n' +
+    '• /profile — عرض ملفك وإحصائياتك\n' +
+    '• /board — عرض لوحة النتائج (الترتيب العام وأفضل لاعبي الأسبوع)\n' +
     '• /tournament — بدء بطولة 4 ضد 4 في القروب\n\n' +
     '🏆 ابدأ اللعب الآن وكن أسطورة XO!';
   bot.sendMessage(chatId, welcome, { parse_mode: 'HTML' });
@@ -724,6 +724,16 @@ bot.on('callback_query', async (query) => {
           {
             chat_id: t.chatId,
             message_id: t.messageId,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🎮 انضمام إلى البطولة',
+                    callback_data: 'joinT:' + tId,
+                  },
+                ],
+              ],
+            },
           }
         );
       } catch (e) {
@@ -787,26 +797,56 @@ bot.on('callback_query', async (query) => {
           // تجاهل أية أخطاء أثناء التحرير
         }
       } else {
-        await bot.editMessageText(
-          `👤 ${game.players.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعب آخر...`,
-          {
-            chat_id: game.chatId,
-            message_id: game.messageId,
-          }
-        );
+        // إذا لم يكتمل عدد اللاعبين بعد، حدث الرسالة مع إبقاء زر الانضمام فعالاً
+        try {
+          await bot.editMessageText(
+            `👤 ${game.players.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعب آخر...`,
+            {
+              chat_id: game.chatId,
+              message_id: game.messageId,
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '🎮 انضمام إلى اللعبة',
+                      callback_data: 'join:' + gameId,
+                    },
+                  ],
+                ],
+              },
+            }
+          );
+        } catch (e) {
+          // تجاهل الأخطاء
+        }
       }
     } else if (game.type === 'group6') {
       if (game.players.length === 6) {
         // عند اكتمال اللاعبين، ابدأ اللعبة مباشرة بدون مؤقِّت
         startGroup6Game(gameId);
       } else {
-        await bot.editMessageText(
-          `👤 ${game.players.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعبين آخرين... (${game.players.length}/6)`,
-          {
-            chat_id: game.chatId,
-            message_id: game.messageId,
-          }
-        );
+        // إذا لم يكتمل العدد بعد، حدث الرسالة مع إبقاء زر الانضمام فعالاً
+        try {
+          await bot.editMessageText(
+            `👤 ${game.players.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعبين آخرين... (${game.players.length}/6)`,
+            {
+              chat_id: game.chatId,
+              message_id: game.messageId,
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '🎮 انضمام إلى التحدي',
+                      callback_data: 'join6:' + gameId,
+                    },
+                  ],
+                ],
+              },
+            }
+          );
+        } catch (e) {
+          // تجاهل الأخطاء
+        }
       }
     }
     return;
