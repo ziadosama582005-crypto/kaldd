@@ -346,6 +346,53 @@ const challenges = {};
 // 🏟️ تخزين البطولات القائمة. يحتوى على كل بطولة حسب معرفها.
 const tournaments = {};
 
+// ==================================================
+// 🎮 Inline Mode — اختيار الرمز ثم بدء اللعبة تلقائيًا
+// يسمح هذا الوضع بإنشاء لعبة مباشرة عبر كتابة @اسم_البوت play فى أى محادثة.
+bot.on('inline_query', async (query) => {
+  try {
+    const q = (query.query || '').trim().toLowerCase();
+    // إذا لم يتم إدخال نص أو تم إدخال play أو xo، عرض خيار بدء اللعبة
+    if (!q || q === 'play' || q === 'xo') {
+      const gameId = generateGameId();
+      // نُنشئ لعبة مؤقتة دون تحديد نوعها حتى يختار اللاعبان الرموز
+      games[gameId] = {
+        id: gameId,
+        type: 'inline', // لعبة فى الوضع المضمن
+        chatId: null,
+        board: newBoard(),
+        players: [],
+        turn: null,
+        messageId: null,
+      };
+      const text = '🎮 اختر الرمز لتبدأ اللعبة:\nالرمز الذي تختاره سيكون دورك الأول.';
+      const result = {
+        type: 'article',
+        id: gameId,
+        title: 'بدء لعبة XO',
+        description: 'ابدأ اللعبة باختيار ❌ أو ⭕️',
+        input_message_content: { message_text: text },
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '❌', callback_data: `pick:X:${gameId}` },
+              { text: '⭕️', callback_data: `pick:O:${gameId}` },
+            ],
+          ],
+        },
+      };
+      await bot.answerInlineQuery(query.id, [result], { cache_time: 0, is_personal: true });
+    } else {
+      // إذا لم يكن النص مطابقاً، اقترح على المستخدم كتابة play لبدء اللعبة
+      await bot.answerInlineQuery(query.id, [], {
+        switch_pm_text: 'اكتب play لبدء XO',
+        switch_pm_parameter: 'start',
+      });
+    }
+  } catch (err) {
+    console.error('inline_query error:', err.message);
+  }
+});
 // دالة توليد معرف فريد لكل بطولة يبدأ بحرف t
 function generateTournamentId() {
   return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -367,11 +414,11 @@ bot.getMe().then((me) => {
   bot.setMyCommands([
     { command: 'start', description: 'بدء الاستخدام والترحيب' },
     { command: 'newgame', description: 'بدء لعبة ثنائية في القروب' },
-    { command: 'newgame6', description: 'بدء تحدي 3 ضد 3 في القروب' },
+    { command: 'newgame6', description: 'بدء تحدي 2 ضد 2 في القروب' },
     { command: 'challenge', description: 'تحدي صديق في الخاص' },
     { command: 'profile', description: 'عرض ملفك الشخصي وإحصائياتك' },
     { command: 'board', description: 'عرض لوحة النتائج' },
-    { command: 'tournament', description: 'بدء بطولة 4 ضد 4 فى القروب' },
+    { command: 'tournament', description: 'بدء بطولة 3 ضد 3 فى القروب' },
   ]);
 });
 
@@ -450,11 +497,12 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
     '✨ الفوز يمنح +10 نقاط، التعادل لا نقاط، ولا نقاط للخاسر\n\n' +
     '🧠 الأوامر المتاحة:\n' +
     '• /newgame — بدء لعبة ثنائية في القروب\n' +
-    '• /newgame6 — بدء تحدي 3 ضد 3 في القروب\n' +
+    '• /newgame6 — بدء تحدي 2 ضد 2 في القروب\n' +
     '• /challenge — تحدي صديق في الخاص\n' +
     '• /profile — عرض ملفك وإحصائياتك\n' +
     '• /board — عرض لوحة النتائج (الترتيب العام وأفضل لاعبي الأسبوع)\n' +
-    '• /tournament — بدء بطولة 4 ضد 4 في القروب\n\n' +
+    '• /tournament — بدء بطولة 3 ضد 3 في القروب\n\n' +
+    '💡 كما يمكنك كتابة <b>@' + escapeHTML(botUsername) + ' play</b> فى أى دردشة لبدء لعبة ثنائية مباشرة عن طريق اختيار الرمز.\n\n' +
     '🏆 ابدأ اللعب الآن وكن أسطورة XO!';
   bot.sendMessage(chatId, welcome, { parse_mode: 'HTML' });
 });
@@ -936,6 +984,94 @@ bot.on('callback_query', async (query) => {
       }
     }
     return;
+  }
+
+  // 🧩 اختيار الرمز فى الوضع المضمن (inline mode)
+  // إذا كان callback_data يبدأ بـ pick: فهذا يعنى أن أحد اللاعبين اختار رمز X أو O لبدء لعبة خاصة
+  if (data && data.startsWith('pick:')) {
+    const partsPick = data.split(':');
+    // pick:<symbol>:<gameId>
+    const symbolPick = partsPick[1];
+    const pickGameId = partsPick[2];
+    const game = games[pickGameId];
+    if (!game) {
+      await bot.answerCallbackQuery(query.id, { text: '❌ اللعبة انتهت أو غير موجودة.' });
+      return;
+    }
+    // سجّل اللاعب (إنشاء لاعب إذا لم يكن موجوداً)
+    const player = { id: from.id, name: from.first_name || from.username || 'لاعب' };
+    // تأكد أن الرمز لم يُستخدم من قبل
+    if (game.players.find((p) => p.symbol === symbolPick)) {
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ هذا الرمز تم اختياره بالفعل!' });
+      return;
+    }
+    // تأكد أن اللاعب لم ينضم مرتين
+    if (game.players.find((p) => p.id === from.id)) {
+      await bot.answerCallbackQuery(query.id, { text: '✅ أنت مشارك بالفعل!' });
+      return;
+    }
+    // أضف اللاعب مع رمزه
+    game.players.push({ ...player, symbol: symbolPick });
+    await bot.answerCallbackQuery(query.id, { text: `✅ اخترت ${symbolPick === 'X' ? '❌' : '⭕️'}` });
+    // إذا كان هذا أول لاعب، عدّل الرسالة لانتظار اللاعب الثانى
+    if (game.players.length === 1) {
+      const otherSymbol = symbolPick === 'X' ? 'O' : 'X';
+      try {
+        await bot.editMessageText(
+          `✅ ${player.name} اختار ${symbolPick === 'X' ? '❌' : '⭕️'}\n🕓 بانتظار لاعب آخر يختار الرمز الثاني.`,
+          {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: otherSymbol === 'X' ? '❌' : '⭕️',
+                    callback_data: `pick:${otherSymbol}:${pickGameId}`,
+                  },
+                ],
+              ],
+            },
+          }
+        );
+      } catch (e) {
+        // تجاهل أخطاء التحرير
+      }
+      return;
+    }
+    // إذا أصبح لدينا لاعبان، نبدأ اللعبة مباشرة
+    if (game.players.length === 2) {
+      // حدد اللاعبين X و O
+      const pX = game.players.find((p) => p.symbol === 'X');
+      const pO = game.players.find((p) => p.symbol === 'O');
+      // إذا لم يكن لدينا أحد اللاعبين (يجب ألا يحدث) فسنتجاهل
+      if (!pX || !pO) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ حدث خطأ أثناء بدء اللعبة.' });
+        return;
+      }
+      // حفظ بيانات اللعبة كأنها لعبة ثنائية عادية
+      game.chatId = message.chat.id;
+      game.messageId = message.message_id;
+      game.type = 'group'; // نعاملها كأنها لعبة قروب ثنائية
+      game.players = [
+        { id: pX.id, name: pX.name },
+        { id: pO.id, name: pO.name },
+      ];
+      game.turn = 'X';
+      game.board = newBoard();
+      // رسالة البداية
+      const startText = `🎯 بدأ اللعب!\n❌ ${pX.name}\n⭕️ ${pO.name}\n\nدور ${pX.name}`;
+      try {
+        await bot.editMessageText(startText, {
+          chat_id: message.chat.id,
+          message_id: message.message_id,
+          ...renderBoard(game.board),
+        });
+      } catch (e) {
+        // تجاهل أخطاء التحرير
+      }
+      return;
+    }
   }
 
   // معالجة اللعب الخاص أو القروب
