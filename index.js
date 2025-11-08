@@ -268,6 +268,74 @@ function startGroup6Game(gameId) {
   });
 }
 
+// ⚙️ بدء لعبة التحدي 2 ضد 2 بعد اكتمال اللاعبين
+// هذه الدالة تقوم بتقسيم أربعة لاعبين إلى فريقين عشوائيين (X و O) وتبدأ اللعبة
+function startGroup4Game(gameId) {
+  const game = games[gameId];
+  if (!game || game.type !== 'group4') return;
+  if (!game.players || game.players.length < 4) return;
+  // عيّن الفرق عشوائياً
+  const shuffled = [...game.players].sort(() => Math.random() - 0.5);
+  game.teams = {
+    X: shuffled.slice(0, 2),
+    O: shuffled.slice(2, 4),
+  };
+  game.turn = 'X';
+  game.board = newBoard();
+  // إنشاء نص الفرق
+  const teamXNames = game.teams.X.map((u) => u.name).join('، ');
+  const teamONames = game.teams.O.map((u) => u.name).join('، ');
+  const msgText = `🎮 فريق X: ${teamXNames} vs فريق O: ${teamONames}\n🎯 دور فريق X`;
+  try {
+    bot.editMessageText(msgText, {
+      chat_id: game.chatId,
+      message_id: game.messageId,
+      ...renderBoard(game.board),
+    });
+  } catch (e) {
+    // تجاهل أى خطأ فى التحرير
+  }
+}
+
+/**
+ * بدء الجولة الأولى من بطولة 3 ضد 3 (ستة لاعبين):
+ * تقوم هذه الدالة بتقسيم المشاركين إلى ثلاث مباريات (كل مباراة بين لاعبين اثنين)
+ * ثم تبدأ أول مباراة بإظهار لوحة اللعب فى القروب.
+ * بعد كل مباراة يتم الانتقال للتي تليها حتى يتم الانتهاء من الثلاث مباريات.
+ * @param {string} tId معرف البطولة
+ */
+function startTournamentRound(tId) {
+  const t = tournaments[tId];
+  if (!t || t.stage !== 'waiting') return;
+  if (!t.participants || t.participants.length < 6) return;
+  // اخلط اللاعبين عشوائياً
+  const shuffled = [...t.participants].sort(() => Math.random() - 0.5);
+  t.matchList = [];
+  for (let i = 0; i < shuffled.length; i += 2) {
+    // إنشاء مباراة من لاعبَين
+    t.matchList.push([shuffled[i], shuffled[i + 1]]);
+  }
+  t.stage = 'round_of_6';
+  t.currentMatchIndex = 0;
+  t.winners = [];
+  t.byePlayer = null;
+  t.currentPlayers = t.matchList[0];
+  t.board = newBoard();
+  t.turn = 'X';
+  const p1 = t.currentPlayers[0].name;
+  const p2 = t.currentPlayers[1].name;
+  const header = `🎮 الجولة الأولى (دور 6)\n${p1} vs ${p2}\n🎯 دور ${p1} (❌)`;
+  try {
+    bot.editMessageText(header, {
+      chat_id: t.chatId,
+      message_id: t.messageId,
+      ...renderBoard(t.board),
+    });
+  } catch (e) {
+    // تجاهل أخطاء التحرير
+  }
+}
+
 // ==================================================
 // 🧠 بيانات الذاكرة
 // نحتفظ بكل الألعاب في هذا الكائن. كل لعبة لها معرّف فريد (gameId)
@@ -500,7 +568,8 @@ bot.onText(/^\/newgame(?:@\w+)?(?:\s|$)/, (msg) => {
 });
 
 // ==================================================
-// 🥅 /newgame6 — لعبة 3 ضد 3 فى القروبات. نقبل أيضًا الصيغة مع @اسم_البوت
+// 🥅 /newgame6 — لعبة 2 ضد 2 فى القروبات (كانت 3 ضد 3 سابقاً). نقبل أيضًا الصيغة مع @اسم_البوت
+// هذا الأمر يسمح لأربعة لاعبين بالانضمام، حيث يتم تقسيمهم إلى فريقين (X و O) بواقع لاعبين لكل فريق
 bot.onText(/^\/newgame6(?:@\w+)?(?:\s|$)/, (msg) => {
   // هذا الأمر متاح فقط فى القروبات
   if (msg.chat.type === 'private') {
@@ -509,11 +578,11 @@ bot.onText(/^\/newgame6(?:@\w+)?(?:\s|$)/, (msg) => {
   const chatId = msg.chat.id;
   const user = msg.from;
   ensurePlayer(user);
-  // إنشاء معرف فريد للعبة 3 ضد 3
+  // إنشاء معرف فريد للعبة 2 ضد 2
   const gameId = generateGameId();
   games[gameId] = {
     id: gameId,
-    type: 'group6',
+    type: 'group4',
     chatId: chatId,
     board: newBoard(),
     players: [{ id: user.id, name: user.first_name || user.username || 'مستخدم' }],
@@ -525,7 +594,7 @@ bot.onText(/^\/newgame6(?:@\w+)?(?:\s|$)/, (msg) => {
   bot
     .sendMessage(
       chatId,
-      `👤 ${user.first_name} بدأ تحدي 3 ضد 3!\nاضغط للانضمام حتى يكتمل عدد اللاعبين.`,
+      `👤 ${user.first_name} بدأ تحدي 2 ضد 2!\nاضغط للانضمام حتى يكتمل عدد اللاعبين (4).`,
       {
         reply_markup: {
           inline_keyboard: [[{ text: '🎮 انضمام إلى التحدي', callback_data: 'join6:' + gameId }]],
@@ -534,7 +603,7 @@ bot.onText(/^\/newgame6(?:@\w+)?(?:\s|$)/, (msg) => {
     )
     .then((sent) => {
       games[gameId].messageId = sent.message_id;
-      // فى لعبة 3 ضد 3 لا يوجد مؤقِّت؛ يبدأ اللعب فقط عند اكتمال 6 لاعبين.
+      // فى لعبة 2 ضد 2 لا يوجد مؤقِّت؛ يبدأ اللعب فقط عند اكتمال 4 لاعبين.
     });
 });
 
@@ -578,17 +647,20 @@ bot.onText(/^(?:\/tournament(?:@\w+)?|\/بطولة(?:@\w+)?)(?:\s|$)/, (msg) => 
       { id: user.id, name: user.first_name || user.username || 'مستخدم' },
     ],
     stage: 'waiting',
-    teams: null,
+    // قائمة المباريات فى الجولة الحالية: كل عنصر عبارة عن [player1, player2]
+    matchList: [],
+    currentMatchIndex: 0,
+    currentPlayers: null,
+    winners: [],
+    byePlayer: null,
     board: null,
     turn: null,
     messageId: null,
-    p1: null,
-    p2: null,
   };
   bot
     .sendMessage(
       chatId,
-      `👤 ${user.first_name} بدأ بطولة 4 ضد 4!\nاضغط للانضمام حتى يكتمل عدد اللاعبين (8).`,
+      `👤 ${user.first_name} بدأ بطولة 3 ضد 3!\nاضغط للانضمام حتى يكتمل عدد اللاعبين (6).`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -693,7 +765,7 @@ bot.on('callback_query', async (query) => {
   const { message, from, data } = query;
   // معالجة زر الانضمام فى القروب أو البطولة. يتضمن callback_data المعرّف.
   if (data && (data.startsWith('joinT:'))) {
-    // الانضمام إلى بطولة 4 ضد 4
+    // الانضمام إلى بطولة 3 ضد 3 (تتكون من ستة لاعبين)
     const tId = data.split(':')[1];
     const t = tournaments[tId];
     if (!t) {
@@ -705,22 +777,22 @@ bot.on('callback_query', async (query) => {
       await bot.answerCallbackQuery(query.id, { text: '✅ أنت بالفعل في البطولة.' });
       return;
     }
-    // حد اللاعبين فى البطولة 8 لاعبين
-    if (t.participants.length >= 8) {
+    // حد اللاعبين فى البطولة 6 لاعبين
+    if (t.participants.length >= 6) {
       await bot.answerCallbackQuery(query.id, { text: '⚠️ البطولة مكتملة بالفعل.' });
       return;
     }
     t.participants.push({ id: from.id, name: from.first_name || from.username || 'مستخدم' });
     ensurePlayer(from);
     await bot.answerCallbackQuery(query.id, { text: '✅ تم الانضمام إلى البطولة.' });
-    if (t.participants.length === 8) {
-      // عند اكتمال اللاعبين، ابدأ البطولة
-      startTournamentStage(tId);
+    if (t.participants.length === 6) {
+      // عند اكتمال اللاعبين، ابدأ الجولة الأولى من البطولة
+      startTournamentRound(tId);
     } else {
       // حدّث الرسالة لعرض عدد المنضمين
       try {
         await bot.editMessageText(
-          `👤 ${t.participants.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعبين آخرين... (${t.participants.length}/8)`,
+          `👤 ${t.participants.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعبين آخرين... (${t.participants.length}/6)`,
           {
             chat_id: t.chatId,
             message_id: t.messageId,
@@ -757,8 +829,9 @@ bot.on('callback_query', async (query) => {
       await bot.answerCallbackQuery(query.id, { text: '⚠️ لا توجد لعبة ثنائية للانضمام هنا.' });
       return;
     }
-    if (joinCmd === 'join6' && game.type !== 'group6') {
-      await bot.answerCallbackQuery(query.id, { text: '⚠️ لا توجد لعبة 3 ضد 3 للانضمام هنا.' });
+    if (joinCmd === 'join6' && !(game.type === 'group4' || game.type === 'group6')) {
+      // join6 يُستخدم للألعاب الجماعية (2 ضد 2 أو 3 ضد 3). إذا كان نوع اللعبة غير ذلك، نرفض الانضمام
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ لا توجد لعبة للانضمام هنا.' });
       return;
     }
     // منع الانضمام مرتين
@@ -766,8 +839,15 @@ bot.on('callback_query', async (query) => {
       await bot.answerCallbackQuery(query.id, { text: '✅ أنت بالفعل في اللعبة.' });
       return;
     }
-    // حد اللاعبين
-    const maxPlayers = game.type === 'group' ? 2 : 6;
+    // حد اللاعبين: 2 للعبة الثنائية، 4 للعبة 2 ضد 2 (group4)، و6 للعبة 3 ضد 3 القديمة
+    let maxPlayers;
+    if (game.type === 'group') {
+      maxPlayers = 2;
+    } else if (game.type === 'group4') {
+      maxPlayers = 4;
+    } else {
+      maxPlayers = 6;
+    }
     if (game.players.length >= maxPlayers) {
       await bot.answerCallbackQuery(query.id, { text: '⚠️ اللعبة امتلأت بالفعل.' });
       return;
@@ -820,15 +900,21 @@ bot.on('callback_query', async (query) => {
           // تجاهل الأخطاء
         }
       }
-    } else if (game.type === 'group6') {
-      if (game.players.length === 6) {
+    } else if (game.type === 'group4' || game.type === 'group6') {
+      // لعبة جماعية بفريقين: 2 ضد 2 أو 3 ضد 3 القديمة
+      const requiredPlayers = game.type === 'group4' ? 4 : 6;
+      if (game.players.length === requiredPlayers) {
         // عند اكتمال اللاعبين، ابدأ اللعبة مباشرة بدون مؤقِّت
-        startGroup6Game(gameId);
+        if (game.type === 'group4') {
+          startGroup4Game(gameId);
+        } else {
+          startGroup6Game(gameId);
+        }
       } else {
         // إذا لم يكتمل العدد بعد، حدث الرسالة مع إبقاء زر الانضمام فعالاً
         try {
           await bot.editMessageText(
-            `👤 ${game.players.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعبين آخرين... (${game.players.length}/6)`,
+            `👤 ${game.players.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعبين آخرين... (${game.players.length}/${requiredPlayers})`,
             {
               chat_id: game.chatId,
               message_id: game.messageId,
@@ -892,7 +978,7 @@ bot.on('callback_query', async (query) => {
       return t.chatId === message.chat.id && t.messageId === message.message_id;
     });
     if (tId) {
-      // معالجة تفاعل البطولة
+      // معالجة تفاعل البطولة بنظام دور الستة (3 ضد 3) مع خروج المغلوب
       const t = tournaments[tId];
       // تحقق من صحة الخانة
       if (!t.board || t.board[i][j] === undefined) {
@@ -903,128 +989,164 @@ bot.on('callback_query', async (query) => {
         await bot.answerCallbackQuery(query.id, { text: '❗ هذه الخانة مشغولة!' });
         return;
       }
-      // تحديد الرمز (X أو O) حسب المرحلة والفريق
+      // يجب أن يكون لدى البطولة لاعبان فى المباراة الحالية
+      if (!t.currentPlayers || t.currentPlayers.length !== 2) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ المباراة غير جاهزة.' });
+        return;
+      }
+      // تحديد الرمز (X أو O) وفقاً للاعبين الحاليين
       let tSymbol = null;
-      if (t.stage === '4v4' || t.stage === '2v2') {
-        if (!t.teams || !t.teams.X || !t.teams.O) {
-          await bot.answerCallbackQuery(query.id, { text: '⚠️ لم تُقسم الفرق بعد.' });
-          return;
-        }
-        if (t.teams.X.some((p) => p.id === from.id)) {
-          tSymbol = 'X';
-        } else if (t.teams.O.some((p) => p.id === from.id)) {
-          tSymbol = 'O';
-        } else {
-          await bot.answerCallbackQuery(query.id, { text: '⚠️ أنت لست جزءاً من هذه البطولة.' });
-          return;
-        }
-        if (tSymbol !== t.turn) {
-          await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دور فريقك الآن.' });
-          return;
-        }
-      } else if (t.stage === '1v1') {
-        if (!t.p1 || !t.p2) {
-          await bot.answerCallbackQuery(query.id, { text: '⚠️ البطولة غير جاهزة.' });
-          return;
-        }
-        if (from.id === t.p1.id) tSymbol = 'X';
-        else if (from.id === t.p2.id) tSymbol = 'O';
-        else {
-          await bot.answerCallbackQuery(query.id, { text: '⚠️ أنت لست جزءاً من هذه البطولة.' });
-          return;
-        }
-        if (tSymbol !== t.turn) {
-          await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دورك الآن.' });
-          return;
-        }
+      if (from.id === t.currentPlayers[0].id) {
+        tSymbol = 'X';
+      } else if (from.id === t.currentPlayers[1].id) {
+        tSymbol = 'O';
       } else {
-        await bot.answerCallbackQuery(query.id, { text: '⚠️ لا يمكن تحديد مرحلة البطولة.' });
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ أنت لست جزءاً من هذه المباراة.' });
+        return;
+      }
+      // التحقق من الدور الصحيح
+      if (tSymbol !== t.turn) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دورك الآن.' });
         return;
       }
       // ضع العلامة وغيّر الدور
       t.board[i][j] = tSymbol;
       t.turn = tSymbol === 'X' ? 'O' : 'X';
       const winnerSymbolT = checkWinner(t.board);
-      let tournamentHeader = '';
-      if (winnerSymbolT) {
-        // فوز فى هذه الجولة
-        if (t.stage === '4v4') {
-          // تأهل الفريق الفائز (4 لاعبين) إلى مرحلة 2 ضد 2
-          const winners = winnerSymbolT === 'X' ? t.teams.X : t.teams.O;
-          const shuffledW = [...winners].sort(() => Math.random() - 0.5);
-          t.stage = '2v2';
-          t.teams = {
-            X: shuffledW.slice(0, 2),
-            O: shuffledW.slice(2, 4),
-          };
+      let header = '';
+      if (winnerSymbolT || t.board.flat().every((c) => c !== ' ')) {
+        // انتهت المباراة الحالية (فوز أو تعادل)
+        // حدد اللاعب الفائز أو اختر عشوائياً فى حالة التعادل
+        let winnerUser;
+        if (winnerSymbolT) {
+          winnerUser = winnerSymbolT === 'X' ? t.currentPlayers[0] : t.currentPlayers[1];
+        } else {
+          // تعادل: اختيار فائز عشوائى للمضى قدماً
+          winnerUser = Math.random() < 0.5 ? t.currentPlayers[0] : t.currentPlayers[1];
+        }
+        // منح نقاط الفوز فى المباراة لأغراض الإحصائيات الفردية
+        const tempGame = { players: [t.currentPlayers[0], t.currentPlayers[1]] };
+        awardPointsTwoPlayerGame(tempGame, winnerUser.id === t.currentPlayers[0].id ? 'X' : (winnerUser.id === t.currentPlayers[1].id ? 'O' : null));
+        // إضافة الفائز إلى قائمة الفائزين لهذه الجولة
+        t.winners.push(winnerUser);
+        // الانتقال إلى المباراة التالية أو المرحلة التالية
+        if (t.stage === 'round_of_6') {
+          t.currentMatchIndex++;
+          if (t.currentMatchIndex < t.matchList.length) {
+            // ابدأ المباراة التالية فى دور الستة
+            t.currentPlayers = t.matchList[t.currentMatchIndex];
+            t.board = newBoard();
+            t.turn = 'X';
+            const p1n = t.currentPlayers[0].name;
+            const p2n = t.currentPlayers[1].name;
+            header = `🎮 الجولة الأولى (دور 6)\n${p1n} vs ${p2n}\n🎯 دور ${p1n} (❌)`;
+          } else {
+            // انتهى دور الستة، انتقل إلى نصف النهائى أو النهائى
+            if (t.winners.length > 2) {
+              // لدينا ثلاثة فائزين: اختيار اثنين لنصف النهائى وتعيين الثالث فى انتظار النهائى
+              const shuffledWinners = [...t.winners].sort(() => Math.random() - 0.5);
+              t.currentPlayers = [shuffledWinners[0], shuffledWinners[1]];
+              t.byePlayer = shuffledWinners[2];
+              t.stage = 'semi_final';
+              t.board = newBoard();
+              t.turn = 'X';
+              t.winners = [];
+              const p1n2 = t.currentPlayers[0].name;
+              const p2n2 = t.currentPlayers[1].name;
+              header = `🎮 نصف النهائى (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
+            } else if (t.winners.length === 2) {
+              // لدينا فائزان فقط، انتقل مباشرة إلى النهائى
+              t.currentPlayers = [t.winners[0], t.winners[1]];
+              t.stage = 'final';
+              t.board = newBoard();
+              t.turn = 'X';
+              t.winners = [];
+              const p1n2 = t.currentPlayers[0].name;
+              const p2n2 = t.currentPlayers[1].name;
+              header = `🎮 الجولة النهائية (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
+            } else {
+              // لا يوجد فائزون؟ هذا لا يجب أن يحدث، ولكن لإعادة الضبط
+              // إعادة البطولة
+              delete tournaments[tId];
+              await bot.editMessageText('⚠️ حدث خطأ فى البطولة وتم إلغاؤها.', {
+                chat_id: t.chatId,
+                message_id: t.messageId,
+              });
+              await bot.answerCallbackQuery(query.id);
+              return;
+            }
+          }
+        } else if (t.stage === 'semi_final') {
+          // الفائز فى نصف النهائى سيواجه اللاعب المنتظر فى النهائى
+          t.stage = 'final';
+          // إضافة الفائز إلى القائمة (ليتم استخدامه فى النهائى مع byePlayer)
+          // t.winners قد تكون فارغة هنا؛ سنختار الفائز فقط
+          const bye = t.byePlayer;
+          t.currentPlayers = [winnerUser, bye];
+          t.byePlayer = null;
           t.board = newBoard();
           t.turn = 'X';
-          const txNames = t.teams.X.map((u) => u.name).join('، ');
-          const toNames = t.teams.O.map((u) => u.name).join('، ');
-          tournamentHeader = `🎮 مرحلة نصف النهائية (2 ضد 2)\nفريق X: ${txNames} vs فريق O: ${toNames}\n🎯 دور فريق X`;
-        } else if (t.stage === '2v2') {
-          // تأهل الفريق الفائز (2 لاعبين) إلى مرحلة 1 ضد 1
-          const winners = winnerSymbolT === 'X' ? t.teams.X : t.teams.O;
-          t.stage = '1v1';
-          t.p1 = winners[0];
-          t.p2 = winners[1];
-          t.board = newBoard();
-          t.turn = 'X';
-          tournamentHeader = `🎮 الجولة النهائية (1 ضد 1)\n${t.p1.name} vs ${t.p2.name}\n🎯 دور ${t.p1.name} (❌)`;
-        } else if (t.stage === '1v1') {
-          // فاز أحد اللاعبين بالبطولة
-          const winnerUser = winnerSymbolT === 'X' ? t.p1 : t.p2;
-          awardTournamentWinner(winnerUser);
-          tournamentHeader = `🏆 الفائز بالبطولة: ${winnerUser.name}!`;
-          // احذف البطولة بعد النهاية
+          const p1n2 = t.currentPlayers[0].name;
+          const p2n2 = t.currentPlayers[1].name;
+          header = `🎮 الجولة النهائية (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
+        } else if (t.stage === 'final') {
+          // النهائي: تم تحديد الفائز بالبطولة
+          const champion = winnerUser;
+          awardTournamentWinner(champion);
+          header = `🏆 الفائز بالبطولة: ${champion.name}!`;
           delete tournaments[tId];
         }
-      } else if (t.board.flat().every((c) => c !== ' ')) {
-        // تعادل: إعادة الجولة بنفس المرحلة
-        t.board = newBoard();
-        t.turn = 'X';
-        if (t.stage === '4v4') {
-          const txNames = t.teams.X.map((u) => u.name).join('، ');
-          const toNames = t.teams.O.map((u) => u.name).join('، ');
-          tournamentHeader = `🤝 تعادل!\nفريق X: ${txNames} vs فريق O: ${toNames}\n🎯 دور فريق X`;
-        } else if (t.stage === '2v2') {
-          const txNames = t.teams.X.map((u) => u.name).join('، ');
-          const toNames = t.teams.O.map((u) => u.name).join('، ');
-          tournamentHeader = `🤝 تعادل!\nفريق X: ${txNames} vs فريق O: ${toNames}\n🎯 دور فريق X`;
-        } else if (t.stage === '1v1') {
-          tournamentHeader = `🤝 تعادل!\n${t.p1.name} vs ${t.p2.name}\n🎯 دور ${t.p1.name} (❌)`;
+        // بعد كل انتقال، يتم إرسال الرسالة مع اللوحة الجديدة (إلا إذا تم حذف البطولة)
+        if (tournaments[tId]) {
+          try {
+            await bot.editMessageText(header, {
+              chat_id: t.chatId,
+              message_id: t.messageId,
+              ...renderBoard(t.board),
+            });
+          } catch (e) {
+            // تجاهل الأخطاء
+          }
+        } else {
+          // البطولة انتهت: مجرد إرسال الرسالة النهائية (بدون لوحة)
+          try {
+            await bot.editMessageText(header, {
+              chat_id: t.chatId,
+              message_id: t.messageId,
+            });
+          } catch (e) {
+            // تجاهل الأخطاء
+          }
         }
+        await bot.answerCallbackQuery(query.id);
+        return;
       } else {
-        // اللعبة مستمرة: إعداد العنوان للمرحلة الحالية
-        if (t.stage === '4v4') {
-          const txNames = t.teams.X.map((u) => u.name).join('، ');
-          const toNames = t.teams.O.map((u) => u.name).join('، ');
-          tournamentHeader = `🎮 بطولة 4 ضد 4\nفريق X: ${txNames} vs فريق O: ${toNames}\n🎯 دور فريق ${t.turn}`;
-        } else if (t.stage === '2v2') {
-          const txNames = t.teams.X.map((u) => u.name).join('، ');
-          const toNames = t.teams.O.map((u) => u.name).join('، ');
-          tournamentHeader = `🎮 مرحلة نصف النهائية (2 ضد 2)\nفريق X: ${txNames} vs فريق O: ${toNames}\n🎯 دور فريق ${t.turn}`;
-        } else if (t.stage === '1v1') {
-          tournamentHeader = `🎮 الجولة النهائية (1 ضد 1)\n${t.p1.name} vs ${t.p2.name}\n🎯 دور ${t.turn === 'X' ? t.p1.name : t.p2.name}`;
+        // المباراة لم تنته بعد: إعداد العنوان للمرحلة الحالية
+        let p1name = t.currentPlayers[0].name;
+        let p2name = t.currentPlayers[1].name;
+        if (t.stage === 'round_of_6') {
+          header = `🎮 الجولة الأولى (دور 6)\n${p1name} vs ${p2name}\n🎯 دور ${t.turn === 'X' ? p1name : p2name}`;
+        } else if (t.stage === 'semi_final') {
+          header = `🎮 نصف النهائى (1 ضد 1)\n${p1name} vs ${p2name}\n🎯 دور ${t.turn === 'X' ? p1name : p2name}`;
+        } else if (t.stage === 'final') {
+          header = `🎮 الجولة النهائية (1 ضد 1)\n${p1name} vs ${p2name}\n🎯 دور ${t.turn === 'X' ? p1name : p2name}`;
         }
+        try {
+          await bot.editMessageText(header, {
+            chat_id: t.chatId,
+            message_id: t.messageId,
+            ...renderBoard(t.board),
+          });
+        } catch (e) {
+          // تجاهل الأخطاء
+        }
+        await bot.answerCallbackQuery(query.id);
+        return;
       }
-      // تحديث الرسالة بآخر حالة للبطولة
-      try {
-        await bot.editMessageText(tournamentHeader, {
-          chat_id: t.chatId,
-          message_id: t.messageId,
-          ...renderBoard(t.board),
-        });
-      } catch (e) {
-        // تجاهل أية أخطاء
-      }
-      await bot.answerCallbackQuery(query.id);
-      return;
     } else {
       await bot.answerCallbackQuery(query.id, { text: '⚠️ لا توجد لعبة نشطة لهذه الرسالة.' });
       return;
     }
-  }
   const game = games[gameId];
   let symbol = null;
   if (game.type === 'private') {
@@ -1039,8 +1161,8 @@ bot.on('callback_query', async (query) => {
       await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دورك الآن.' });
       return;
     }
-  } else if (game.type === 'group6') {
-    // لعبة 3 ضد 3: حدد الفريق الذي ينتمي إليه اللاعب
+  } else if (game.type === 'group4' || game.type === 'group6') {
+    // لعبة جماعية: حدد الفريق الذي ينتمي إليه اللاعب (2 ضد 2 أو 3 ضد 3)
     if (!game.teams || !game.teams.X || !game.teams.O) {
       await bot.answerCallbackQuery(query.id, { text: '⚠️ لم تُقسم الفرق بعد.' });
       return;
@@ -1097,8 +1219,8 @@ bot.on('callback_query', async (query) => {
       const winnerName = winnerSymbol === 'X' ? game.p1.name : game.p2.name;
       resultText = `🏆 الفائز: ${winnerName}!`;
       awardPointsPrivateGame(gameId, winnerSymbol);
-    } else if (game.type === 'group6') {
-      // عند الفوز فى لعبة 3 ضد 3 أعلن الفريق الفائز وأسماء أعضائه
+    } else if (game.type === 'group6' || game.type === 'group4') {
+      // عند الفوز فى لعبة جماعية (2 ضد 2 أو 3 ضد 3) أعلن الفريق الفائز وأسماء أعضائه
       const teamXNames = game.teams.X.map((u) => u.name).join('، ');
       const teamONames = game.teams.O.map((u) => u.name).join('، ');
       resultText =
@@ -1120,7 +1242,7 @@ bot.on('callback_query', async (query) => {
     resultText = '🤝 انتهت اللعبة بالتعادل!';
     if (game.type === 'private') {
       awardPointsPrivateGame(gameId, null);
-    } else if (game.type === 'group6') {
+    } else if (game.type === 'group6' || game.type === 'group4') {
       awardPointsGroup6Game(game, null);
     } else {
       awardPointsTwoPlayerGame(game, null);
