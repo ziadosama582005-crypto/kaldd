@@ -1427,8 +1427,9 @@ bot.on('callback_query', async (query) => {
       await bot.editMessageText(
         `🎮 ${game.players[0].name} vs ${game.players[1].name}\n${resultText}`,
         {
-          chat_id: game.chatId,
-          message_id: game.messageId,
+          ...(game.inline_message_id
+            ? { inline_message_id: game.inline_message_id }
+            : { chat_id: game.chatId, message_id: game.messageId }),
           ...renderBoard(game.board),
         }
       );
