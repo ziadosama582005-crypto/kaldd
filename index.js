@@ -1102,21 +1102,37 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
-  // تحديد معرف اللعبة بناءً على الرسالة. أولاً ابحث فى الألعاب الخاصة، ثم الألعاب الجماعية حسب chatId و messageId
-  let gameId =
-    Object.keys(games).find((id) => {
-      const g = games[id];
-      return (
-        g.type === 'private' &&
-        g.msgs &&
-        (g.msgs[g.p1.id] === message.message_id || g.msgs[g.p2.id] === message.message_id)
-      );
-    }) || null;
+  // تحديد معرف اللعبة بناءً على الرسالة أو inline_message_id.
+  // إذا كانت الرسالة من inline mode، استخدم inline_message_id للبحث عن اللعبة.
+  let gameId = null;
+  if (inline_message_id) {
+    gameId =
+      Object.keys(games).find((id) => {
+        const g = games[id];
+        return g && g.inline_message_id && g.inline_message_id === inline_message_id;
+      }) || null;
+  }
+  // إذا لم نجد اللعبة عن طريق inline_message_id، ابحث فى الألعاب الخاصة ثم الجماعية
+  if (!gameId) {
+    gameId =
+      Object.keys(games).find((id) => {
+        const g = games[id];
+        return (
+          g.type === 'private' &&
+          g.msgs &&
+          message &&
+          ((g.msgs[g.p1.id] && g.msgs[g.p1.id] === message.message_id) ||
+            (g.msgs[g.p2.id] && g.msgs[g.p2.id] === message.message_id))
+        );
+      }) || null;
+  }
   if (!gameId) {
     const candidate = Object.keys(games).find((id) => {
       const g = games[id];
       return (
-        (g.type === 'group' || g.type === 'group6') &&
+        (g.type === 'group' || g.type === 'group6' || g.type === 'group4') &&
+        g.chatId &&
+        message &&
         g.chatId === message.chat.id &&
         g.messageId === message.message_id
       );
