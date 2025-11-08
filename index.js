@@ -1147,6 +1147,8 @@ bot.on('callback_query', async (query) => {
       await bot.answerCallbackQuery(query.id, { text: '⚠️ لا توجد لعبة نشطة لهذه الرسالة.' });
       return;
     }
+    // انتهت معالجة البطولة تماماً، الآن نغلق شرط عدم وجود gameId
+  }
   const game = games[gameId];
   let symbol = null;
   if (game.type === 'private') {
