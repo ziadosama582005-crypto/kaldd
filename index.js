@@ -810,7 +810,7 @@ function awardTournamentWinner(winnerUser) {
 // ==================================================
 // 🎯 التفاعل مع الأزرار
 bot.on('callback_query', async (query) => {
-  const { message, from, data } = query;
+  const { message, from, data, inline_message_id } = query;
   // معالجة زر الانضمام فى القروب أو البطولة. يتضمن callback_data المعرّف.
   if (data && (data.startsWith('joinT:'))) {
     // الانضمام إلى بطولة 3 ضد 3 (تتكون من ستة لاعبين)
@@ -993,10 +993,20 @@ bot.on('callback_query', async (query) => {
     // pick:<symbol>:<gameId>
     const symbolPick = partsPick[1];
     const pickGameId = partsPick[2];
-    const game = games[pickGameId];
+    let game = games[pickGameId];
+    // إذا لم تكن اللعبة موجودة (ربما تمت إعادة تشغيل البوت) أنشئ لعبة جديدة
     if (!game) {
-      await bot.answerCallbackQuery(query.id, { text: '❌ اللعبة انتهت أو غير موجودة.' });
-      return;
+      games[pickGameId] = {
+        id: pickGameId,
+        type: 'inline',
+        chatId: null,
+        messageId: null,
+        inline_message_id: inline_message_id || null,
+        board: newBoard(),
+        players: [],
+        turn: null,
+      };
+      game = games[pickGameId];
     }
     // سجّل اللاعب (إنشاء لاعب إذا لم يكن موجوداً)
     const player = { id: from.id, name: from.first_name || from.username || 'لاعب' };
@@ -1020,8 +1030,9 @@ bot.on('callback_query', async (query) => {
         await bot.editMessageText(
           `✅ ${player.name} اختار ${symbolPick === 'X' ? '❌' : '⭕️'}\n🕓 بانتظار لاعب آخر يختار الرمز الثاني.`,
           {
-            chat_id: message.chat.id,
-            message_id: message.message_id,
+            ...(inline_message_id
+              ? { inline_message_id: inline_message_id }
+              : { chat_id: message.chat.id, message_id: message.message_id }),
             reply_markup: {
               inline_keyboard: [
                 [
@@ -1050,8 +1061,12 @@ bot.on('callback_query', async (query) => {
         return;
       }
       // حفظ بيانات اللعبة كأنها لعبة ثنائية عادية
-      game.chatId = message.chat.id;
-      game.messageId = message.message_id;
+      if (inline_message_id) {
+        game.inline_message_id = inline_message_id;
+      } else {
+        game.chatId = message.chat.id;
+        game.messageId = message.message_id;
+      }
       game.type = 'group'; // نعاملها كأنها لعبة قروب ثنائية
       game.players = [
         { id: pX.id, name: pX.name },
@@ -1063,8 +1078,9 @@ bot.on('callback_query', async (query) => {
       const startText = `🎯 بدأ اللعب!\n❌ ${pX.name}\n⭕️ ${pO.name}\n\nدور ${pX.name}`;
       try {
         await bot.editMessageText(startText, {
-          chat_id: message.chat.id,
-          message_id: message.message_id,
+          ...(inline_message_id
+            ? { inline_message_id: inline_message_id }
+            : { chat_id: message.chat.id, message_id: message.message_id }),
           ...renderBoard(game.board),
         });
       } catch (e) {
