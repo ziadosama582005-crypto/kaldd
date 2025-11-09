@@ -7,7 +7,7 @@ const fs = require('fs');
 const TelegramBot = require('node-telegram-bot-api');
 
 // ==================================================
-// 🔐 تحميل التوكن من البيئة
+// 🔐 تحميل التوكن
 const token = process.env.BOT_TOKEN ? process.env.BOT_TOKEN.trim() : null;
 console.log('🔍 فحص BOT_TOKEN...');
 if (!token) {
@@ -71,7 +71,7 @@ function ensurePlayer(user) {
 loadPlayers();
 
 // ==================================================
-// 🎮 لوحة XO
+// 🎮 XO Board Helpers
 function newBoard() {
   return [
     [' ', ' ', ' '],
@@ -110,7 +110,7 @@ function escapeHTML(text) {
 
 // ==================================================
 // 🧠 إدارة الألعاب
-// game = { id, inline_message_id, board, turn, pX, pO, status }
+// game: { id, inline_message_id, board, status, turn, pX, pO }
 const games = {};
 
 function generateGameId() {
@@ -138,7 +138,7 @@ function awardPoints(game, winnerSymbol) {
 }
 
 // ==================================================
-// 🔔 جاهزية البوت + أوامر بسيطة
+// 🔔 جاهزية البوت
 bot.getMe().then((me) => {
   botUsername = me.username;
   console.log(`✅ البوت جاهز: @${botUsername}`);
@@ -158,13 +158,15 @@ bot.onText(/\/start(?:\s+(.+))?/, (msg) => {
 
   const text =
     '👋 أهلاً <b>' + escapeHTML(player.name) + '</b>\n' +
-    'كل اللعب يتم عبر <b>Inline Mode</b> فقط.\n\n' +
+    'اللعب يتم عبر <b>Inline Mode</b> فقط.\n\n' +
     '⚙️ الطريقة:\n' +
     '1️⃣ في أي قروب أو خاص اكتب: <code>@' + escapeHTML(botUsername) + ' play</code>\n' +
-    '2️⃣ اختر: "بدء لعبة XO (أنا ❌)" أو "بدء لعبة XO (أنا ⭕)".\n' +
-    '3️⃣ أرسل البطاقة، البوت يسجلّك كلاعب أول.\n' +
-    '4️⃣ صديقك يضغط زر الانضمام ويبدأ اللعب في نفس الرسالة.\n\n' +
-    '🏅 يوجد نظام نقاط وانتصارات وخسائر وتعادلات.\n' +
+    '2️⃣ اختر "بدء لعبة XO (أنا ❌)" أو "بدء لعبة XO (أنا ⭕)".\n' +
+    '   👉 هذا يحدد رمزك أنت كلاعب أول.\n' +
+    '3️⃣ أرسل البطاقة.\n' +
+    '4️⃣ صديقك يضغط زر الانضمام (رمز واحد فقط متاح له).\n' +
+    '5️⃣ تبدأ المباراة في نفس الرسالة.\n\n' +
+    '🏅 يوجد نظام نقاط (فوز +10) مع إحصائيات.\n' +
     'استخدم /profile لعرض ملفك و /board لعرض المتصدرين.';
 
   bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
@@ -186,7 +188,9 @@ bot.onText(/^\/(?:profile|ملفي)(?:@\w+)?$/, (msg) => {
 // ==================================================
 // /board — المتصدرين
 bot.onText(/^\/(?:board|اللوحة)(?:@\w+)?$/, (msg) => {
-  const list = Object.values(players).sort((a, b) => (b.points || 0) - (a.points || 0)).reverse();
+  const list = Object.values(players).sort(
+    (a, b) => (b.points || 0) - (a.points || 0)
+  );
   if (!list.length) {
     return bot.sendMessage(
       msg.chat.id,
@@ -203,6 +207,7 @@ bot.onText(/^\/(?:board|اللوحة)(?:@\w+)?$/, (msg) => {
 
 // ==================================================
 // 🎮 Inline Mode — @Bot play
+// أول لاعب يحدد رمزه من شريط الاقتراح، ثم يظهر زر واحد للخصم
 bot.on('inline_query', async (query) => {
   try {
     const q = (query.query || '').trim().toLowerCase();
@@ -214,12 +219,13 @@ bot.on('inline_query', async (query) => {
         type: 'article',
         id: `${baseId}:X`,
         title: 'بدء لعبة XO (أنا ❌)',
-        description: 'أرسل الدعوة، أنت ❌ وصديقك ⭕',
+        description: 'أرسل الدعوة، أنت ❌ والخصم ⭕',
         input_message_content: {
           message_text:
             '🎮 تحدي XO جديد!\n' +
-            '❌ اللاعب الأول اختار نفسه.\n' +
-            '🕓 بانتظار لاعب يضغط زر ⭕ للانضمام.',
+            '❌ اللاعب الأول تم اختياره.\n' +
+            '🕓 بانتظار لاعب يضغط زر ⭕ للانضمام.\n' +
+            '⬜ اللعب سيتم في هذه الرسالة بعد انضمام الخصم.',
         },
         reply_markup: {
           inline_keyboard: [
@@ -237,12 +243,13 @@ bot.on('inline_query', async (query) => {
         type: 'article',
         id: `${baseId}:O`,
         title: 'بدء لعبة XO (أنا ⭕)',
-        description: 'أرسل الدعوة، أنت ⭕ وصديقك ❌',
+        description: 'أرسل الدعوة، أنت ⭕ والخصم ❌',
         input_message_content: {
           message_text:
             '🎮 تحدي XO جديد!\n' +
-            '⭕ اللاعب الأول اختار نفسه.\n' +
-            '🕓 بانتظار لاعب يضغط زر ❌ للانضمام.',
+            '⭕ اللاعب الأول تم اختياره.\n' +
+            '🕓 بانتظار لاعب يضغط زر ❌ للانضمام.\n' +
+            '⬜ اللعب سيتم في هذه الرسالة بعد انضمام الخصم.',
         },
         reply_markup: {
           inline_keyboard: [
@@ -272,7 +279,7 @@ bot.on('inline_query', async (query) => {
 });
 
 // ==================================================
-// 🎮 chosen_inline_result — تسجيل اللاعب الأول
+// 🎮 chosen_inline_result — تسجيل اللاعب الأول فقط
 bot.on('chosen_inline_result', (res) => {
   try {
     const { from, result_id, inline_message_id } = res;
@@ -289,20 +296,20 @@ bot.on('chosen_inline_result', (res) => {
       id: gameId,
       inline_message_id,
       board: newBoard(),
-      status: 'waiting_opponent',
+      status: 'waiting_opponent', // بانتظار خصم
       turn: null,
       pX: symbol === 'X' ? firstPlayer : null,
       pO: symbol === 'O' ? firstPlayer : null,
     };
 
-    console.log(`🎮 لعبة ${gameId} أنشئت بواسطة ${firstPlayer.name} كـ ${symbol}`);
+    console.log(`🎮 لعبة ${gameId} أنشأها ${firstPlayer.name} كـ ${symbol}`);
   } catch (err) {
     console.error('chosen_inline_result error:', err.message);
   }
 });
 
 // ==================================================
-// 🎯 التعامل مع الأزرار (انضمام + الحركات)
+// 🎯 callback_query — انضمام الخصم + اللعب
 bot.on('callback_query', async (query) => {
   const { from, data, inline_message_id, message } = query;
 
@@ -317,11 +324,12 @@ bot.on('callback_query', async (query) => {
         return;
       }
 
+      // حدد هدف الرسالة
       const target = game.inline_message_id
         ? { inline_message_id: game.inline_message_id }
         : { chat_id: message.chat.id, message_id: message.message_id };
 
-      // لا يسمح لنفس اللاعب يكون خصم نفسه
+      // لا يسمح لنفس الشخص يكون الخصم لنفسه
       if (
         (game.pX && game.pX.id === from.id) ||
         (game.pO && game.pO.id === from.id)
@@ -330,7 +338,7 @@ bot.on('callback_query', async (query) => {
         return;
       }
 
-      // تأكد من الرمز
+      // تأكد أن الرمز المطلوب فعلاً هو رمز الخصم المتبقي
       if (symbol === 'X' && game.pX) {
         await bot.answerCallbackQuery(query.id, { text: '⚠️ الرمز ❌ محجوز.' });
         return;
@@ -349,7 +357,7 @@ bot.on('callback_query', async (query) => {
       if (symbol === 'X') game.pX = opponent;
       if (symbol === 'O') game.pO = opponent;
 
-      // الآن جاهزين → نبدأ
+      // عند هذه اللحظة يجب أن يكون عندنا pX و pO → نبدأ
       if (game.pX && game.pO) {
         game.status = 'playing';
         game.turn = 'X';
@@ -377,7 +385,7 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
-    // ---------- حركة على اللوحة ----------
+    // ---------- حركة اللعب ----------
     if (data && data.startsWith('mv:')) {
       const [, gameId, si, sj] = data.split(':');
       const i = Number(si);
@@ -412,7 +420,7 @@ bot.on('callback_query', async (query) => {
         return;
       }
 
-      // تنفيذ الحركة
+      // نفّذ الحركة
       game.board[i][j] = game.turn;
 
       const winnerSymbol = checkWinner(game.board);
@@ -474,4 +482,4 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-console.log('🚀 XO Inline Play Bot يعمل باستخدام @Bot play فقط');
+console.log('🚀 XO Inline Play Bot يعمل الآن باستخدام @Bot play فقط');
