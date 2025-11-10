@@ -161,13 +161,11 @@ bot.onText(/\/start(?:\s+(.+))?/, (msg) => {
     'اللعب يتم عبر <b>Inline Mode</b> فقط.\n\n' +
     '⚙️ الطريقة:\n' +
     '1️⃣ في أي قروب أو خاص اكتب: <code>@' + escapeHTML(botUsername) + ' play</code>\n' +
-    '2️⃣ اختر "بدء لعبة XO (أنا ❌)" أو "بدء لعبة XO (أنا ⭕)".\n' +
-    '   👉 هذا يحدد رمزك أنت كلاعب أول.\n' +
+    '2️⃣ اختر "بدء لعبة XO (أنا ❌)" أو "بدء لعبة XO (أنا ⭕)". (هذا يحددك كلاعب أول)\n' +
     '3️⃣ أرسل البطاقة.\n' +
-    '4️⃣ صديقك يضغط زر الانضمام (رمز واحد فقط متاح له).\n' +
-    '5️⃣ تبدأ المباراة في نفس الرسالة.\n\n' +
-    '🏅 يوجد نظام نقاط (فوز +10) مع إحصائيات.\n' +
-    'استخدم /profile لعرض ملفك و /board لعرض المتصدرين.';
+    '4️⃣ أي صديق يضغط زر الانضمام الوحيد يصبح الخصم.\n' +
+    '5️⃣ بعد الانضمام تبدأ اللعبة في نفس الرسالة.\n\n' +
+    '🏅 فوز +10 نقاط. استخدم /profile لملفك و /board للمتصدرين.';
 
   bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
 });
@@ -188,9 +186,7 @@ bot.onText(/^\/(?:profile|ملفي)(?:@\w+)?$/, (msg) => {
 // ==================================================
 // /board — المتصدرين
 bot.onText(/^\/(?:board|اللوحة)(?:@\w+)?$/, (msg) => {
-  const list = Object.values(players).sort(
-    (a, b) => (b.points || 0) - (a.points || 0)
-  );
+  const list = Object.values(players).sort((a, b) => (b.points || 0) - (a.points || 0));
   if (!list.length) {
     return bot.sendMessage(
       msg.chat.id,
@@ -207,32 +203,36 @@ bot.onText(/^\/(?:board|اللوحة)(?:@\w+)?$/, (msg) => {
 
 // ==================================================
 // 🎮 Inline Mode — @Bot play
-// أول لاعب يحدد رمزه من شريط الاقتراح، ثم يظهر زر واحد للخصم
+// هنا نخزن هوية اللاعب الأول داخل الـ id و الـ callback_data
 bot.on('inline_query', async (query) => {
   try {
     const q = (query.query || '').trim().toLowerCase();
+    const host = query.from; // الشخص اللي كتب @bot play
 
     if (!q || q === 'play' || q === 'xo') {
       const baseId = generateGameId();
+      const hostId = host.id;
+      const hostName = host.first_name || host.username || 'لاعب';
 
       const resultX = {
         type: 'article',
-        id: `${baseId}:X`,
+        id: `${baseId}:X:${hostId}`,
         title: 'بدء لعبة XO (أنا ❌)',
         description: 'أرسل الدعوة، أنت ❌ والخصم ⭕',
         input_message_content: {
           message_text:
-            '🎮 تحدي XO جديد!\n' +
-            '❌ اللاعب الأول تم اختياره.\n' +
-            '🕓 بانتظار لاعب يضغط زر ⭕ للانضمام.\n' +
-            '⬜ اللعب سيتم في هذه الرسالة بعد انضمام الخصم.',
+            `🎮 تحدي XO جديد!\n` +
+            `👤 اللاعب الأول: ${hostName} (❌)\n` +
+            `🕓 بانتظار لاعب يضغط زر ⭕ للانضمام.\n` +
+            `⬜ اللعب سيتم في هذه الرسالة بعد انضمام الخصم.`,
         },
         reply_markup: {
           inline_keyboard: [
             [
               {
                 text: '⭕ انضم كخصم',
-                callback_data: `join:${baseId}:O`,
+                // نحفظ gameId + hostId + رمز الخصم المطلوب
+                callback_data: `join:${baseId}:${hostId}:O`,
               },
             ],
           ],
@@ -241,22 +241,22 @@ bot.on('inline_query', async (query) => {
 
       const resultO = {
         type: 'article',
-        id: `${baseId}:O`,
+        id: `${baseId}:O:${hostId}`,
         title: 'بدء لعبة XO (أنا ⭕)',
         description: 'أرسل الدعوة، أنت ⭕ والخصم ❌',
         input_message_content: {
           message_text:
-            '🎮 تحدي XO جديد!\n' +
-            '⭕ اللاعب الأول تم اختياره.\n' +
-            '🕓 بانتظار لاعب يضغط زر ❌ للانضمام.\n' +
-            '⬜ اللعب سيتم في هذه الرسالة بعد انضمام الخصم.',
+            `🎮 تحدي XO جديد!\n` +
+            `👤 اللاعب الأول: ${hostName} (⭕)\n` +
+            `🕓 بانتظار لاعب يضغط زر ❌ للانضمام.\n` +
+            `⬜ اللعب سيتم في هذه الرسالة بعد انضمام الخصم.`,
         },
         reply_markup: {
           inline_keyboard: [
             [
               {
                 text: '❌ انضم كخصم',
-                callback_data: `join:${baseId}:X`,
+                callback_data: `join:${baseId}:${hostId}:X`,
               },
             ],
           ],
@@ -279,72 +279,113 @@ bot.on('inline_query', async (query) => {
 });
 
 // ==================================================
-// 🎮 chosen_inline_result — تسجيل اللاعب الأول فقط
+// 🎮 chosen_inline_result — تسجيل اللاعب الأول (مصدر موثوق)
+// نستخدمه لوصل، ولو ما وصل نعتمد على بيانات join كـ fallback
 bot.on('chosen_inline_result', (res) => {
   try {
     const { from, result_id, inline_message_id } = res;
-    const [gameId, symbol] = result_id.split(':');
-    if (!gameId || !symbol) return;
+    const parts = result_id.split(':'); // baseId, symbol, hostId
+    if (parts.length < 3) return;
+    const [gameId, symbol, hostIdStr] = parts;
+    const hostId = Number(hostIdStr);
 
-    const firstPlayer = {
-      id: from.id,
+    // تأكيد أن اللي اختار هو نفس الهوست (حماية بسيطة)
+    const hostUser = {
+      id: hostId,
       name: from.first_name || from.username || 'لاعب',
     };
-    ensurePlayer(from);
+    ensurePlayer(hostUser);
 
     games[gameId] = {
       id: gameId,
       inline_message_id,
       board: newBoard(),
-      status: 'waiting_opponent', // بانتظار خصم
+      status: 'waiting_opponent',
       turn: null,
-      pX: symbol === 'X' ? firstPlayer : null,
-      pO: symbol === 'O' ? firstPlayer : null,
+      pX: symbol === 'X' ? hostUser : null,
+      pO: symbol === 'O' ? hostUser : null,
     };
 
-    console.log(`🎮 لعبة ${gameId} أنشأها ${firstPlayer.name} كـ ${symbol}`);
+    console.log(`🎮 [chosen] لعبة ${gameId} أنشأها ${hostUser.name} كـ ${symbol}`);
   } catch (err) {
     console.error('chosen_inline_result error:', err.message);
   }
 });
 
 // ==================================================
-// 🎯 callback_query — انضمام الخصم + اللعب
+// 🎯 callback_query — join + moves
 bot.on('callback_query', async (query) => {
   const { from, data, inline_message_id, message } = query;
 
   try {
     // ---------- انضمام الخصم ----------
     if (data && data.startsWith('join:')) {
-      const [, gameId, symbol] = data.split(':');
-      const game = games[gameId];
+      // join:gameId:hostId:neededSymbolForJoin
+      const [, gameId, hostIdStr, needSymbol] = data.split(':');
+      const hostId = Number(hostIdStr);
+      let game = games[gameId];
 
-      if (!game || game.status !== 'waiting_opponent') {
-        await bot.answerCallbackQuery(query.id, { text: '⚠️ هذا التحدي غير متاح.' });
+      // حدد هدف الرسالة
+      const target = inline_message_id
+        ? { inline_message_id }
+        : { chat_id: message.chat.id, message_id: message.message_id };
+
+      // إذا اللعبة غير موجودة (fallback): نبنيها من جديد من البيانات
+      if (!game) {
+        // نحاول جلب بيانات الهوست من players أو نخليه باسم افتراضي
+        const hostPlayer =
+          players[String(hostId)] || {
+            id: hostId,
+            name: 'اللاعب الأول',
+          };
+
+        const hostUser = {
+          id: hostPlayer.id,
+          name: hostPlayer.name,
+        };
+
+        ensurePlayer(hostUser);
+
+        // host هو صاحب الرمز العكسي لـ needSymbol
+        const hostSymbol = needSymbol === 'X' ? 'O' : 'X';
+
+        game = games[gameId] = {
+          id: gameId,
+          inline_message_id: inline_message_id || null,
+          board: newBoard(),
+          status: 'waiting_opponent',
+          turn: null,
+          pX: hostSymbol === 'X' ? hostUser : null,
+          pO: hostSymbol === 'O' ? hostUser : null,
+        };
+
+        console.log(`🎮 [fallback] إنشاء لعبة ${gameId} تلقائياً للهوست ${hostUser.name}`);
+      }
+
+      // إذا اللعبة ليست فى حالة انتظار خصم
+      if (game.status !== 'waiting_opponent') {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ هذا التحدي لم يعد متاحاً.' });
         return;
       }
 
-      // حدد هدف الرسالة
-      const target = game.inline_message_id
-        ? { inline_message_id: game.inline_message_id }
-        : { chat_id: message.chat.id, message_id: message.message_id };
-
-      // لا يسمح لنفس الشخص يكون الخصم لنفسه
+      // منع الهوست من الانضمام كخصم لنفسه
       if (
         (game.pX && game.pX.id === from.id) ||
         (game.pO && game.pO.id === from.id)
       ) {
-        await bot.answerCallbackQuery(query.id, { text: '⚠️ لا يمكنك تحدي نفسك.' });
+        await bot.answerCallbackQuery(query.id, {
+          text: '⚠️ لا يمكنك أن تكون خصماً لنفسك.',
+        });
         return;
       }
 
-      // تأكد أن الرمز المطلوب فعلاً هو رمز الخصم المتبقي
-      if (symbol === 'X' && game.pX) {
-        await bot.answerCallbackQuery(query.id, { text: '⚠️ الرمز ❌ محجوز.' });
+      // تحقق أن needSymbol فعلاً هو الرمز المتاح للخصم
+      if (needSymbol === 'X' && game.pX) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ الرمز ❌ محجوز بالفعل.' });
         return;
       }
-      if (symbol === 'O' && game.pO) {
-        await bot.answerCallbackQuery(query.id, { text: '⚠️ الرمز ⭕ محجوز.' });
+      if (needSymbol === 'O' && game.pO) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ الرمز ⭕ محجوز بالفعل.' });
         return;
       }
 
@@ -352,12 +393,12 @@ bot.on('callback_query', async (query) => {
         id: from.id,
         name: from.first_name || from.username || 'لاعب',
       };
-      ensurePlayer(from);
+      ensurePlayer(opponent);
 
-      if (symbol === 'X') game.pX = opponent;
-      if (symbol === 'O') game.pO = opponent;
+      if (needSymbol === 'X') game.pX = opponent;
+      if (needSymbol === 'O') game.pO = opponent;
 
-      // عند هذه اللحظة يجب أن يكون عندنا pX و pO → نبدأ
+      // الآن يجب أن يكون عندنا pX و pO → نبدأ
       if (game.pX && game.pO) {
         game.status = 'playing';
         game.turn = 'X';
@@ -367,10 +408,17 @@ bot.on('callback_query', async (query) => {
           `🎮 لعبة XO بدأت!\n` +
           `❌ ${game.pX.name}\n` +
           `⭕ ${game.pO.name}\n` +
+          `🎯 دور ${game.pX.id === game.turnId ? game.pX.name : game.pX.name}`;
+
+        // header الصحيح:
+        const startHeader =
+          `🎮 لعبة XO بدأت!\n` +
+          `❌ ${game.pX.name}\n` +
+          `⭕ ${game.pO.name}\n` +
           `🎯 دور ${game.pX.name}`;
 
         try {
-          await bot.editMessageText(header, {
+          await bot.editMessageText(startHeader, {
             ...target,
             reply_markup: renderBoardInline(gameId, game.board),
           });
@@ -380,8 +428,11 @@ bot.on('callback_query', async (query) => {
 
         await bot.answerCallbackQuery(query.id, { text: '✅ انضممت للتحدي.' });
       } else {
-        await bot.answerCallbackQuery(query.id, { text: '✅ تم الانضمام، بانتظار الخصم.' });
+        await bot.answerCallbackQuery(query.id, {
+          text: '✅ تم تسجيل انضمامك، بانتظار إكمال اللاعبين.',
+        });
       }
+
       return;
     }
 
@@ -475,7 +526,6 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
-    // أي شيء آخر
     await bot.answerCallbackQuery(query.id, { text: '⚠️ إجراء غير معروف.' });
   } catch (err) {
     console.error('callback_query error:', err.message);
