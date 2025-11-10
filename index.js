@@ -615,6 +615,13 @@ bot.on('inline_query', async (query) => {
       const baseId = generateGameId();
       const fromName = query.from.first_name || query.from.username || 'لاعب';
 
+      const p1 = {
+        id: query.from.id,
+        name: query.from.first_name || query.from.username || 'لاعب',
+        username: query.from.username || null,
+      };
+      ensurePlayer(query.from);
+
       const betLine = bet > 0
         ? `💰 رهان: ${bet} نقطة من كل لاعب.\n`
         : '';
@@ -631,9 +638,43 @@ bot.on('inline_query', async (query) => {
         betLine +
         `أرسل التحدي، وأول من يضغط "انضم كخصم" يصبح ❌.\n`;
 
+      // إنشاء اللعبة X مسبقاً
+      const gameIdX = `${baseId}:X:${bet}`;
+      games[gameIdX] = {
+        id: gameIdX,
+        inline_message_id: null, // سيتم تحديثه في chosen_inline_result
+        status: 'waiting_opponent',
+        board: newBoard(),
+        turn: null,
+        pX: p1,
+        pO: null,
+        p1,
+        p2: null,
+        icons: { X: '❌', O: '⭕', empty: '⬜' },
+        bet: bet > 0 ? bet : 0,
+        stakeActive: false,
+      };
+
+      // إنشاء اللعبة O مسبقاً
+      const gameIdO = `${baseId}:O:${bet}`;
+      games[gameIdO] = {
+        id: gameIdO,
+        inline_message_id: null, // سيتم تحديثه في chosen_inline_result
+        status: 'waiting_opponent',
+        board: newBoard(),
+        turn: null,
+        pX: null,
+        pO: p1,
+        p1,
+        p2: null,
+        icons: { X: '❌', O: '⭕', empty: '⬜' },
+        bet: bet > 0 ? bet : 0,
+        stakeActive: false,
+      };
+
       const resultX = {
         type: 'article',
-        id: `${baseId}:X:${bet}`,
+        id: gameIdX,
         title: bet > 0
           ? `أنت ❌ — رهان ${bet}`
           : 'بدء تحدي XO (أنت ❌)',
@@ -643,14 +684,14 @@ bot.on('inline_query', async (query) => {
         input_message_content: { message_text: textX },
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🎮 انضم كخصم', callback_data: `join:${baseId}` }],
+            [{ text: '🎮 انضم كخصم', callback_data: `join:${gameIdX}` }],
           ],
         },
       };
 
       const resultO = {
         type: 'article',
-        id: `${baseId}:O:${bet}`,
+        id: gameIdO,
         title: bet > 0
           ? `أنت ⭕ — رهان ${bet}`
           : 'بدء تحدي XO (أنت ⭕)',
@@ -660,7 +701,7 @@ bot.on('inline_query', async (query) => {
         input_message_content: { message_text: textO },
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🎮 انضم كخصم', callback_data: `join:${baseId}` }],
+            [{ text: '🎮 انضم كخصم', callback_data: `join:${gameIdO}` }],
           ],
         },
       };
@@ -680,40 +721,20 @@ bot.on('inline_query', async (query) => {
   }
 });
 
-// إنشاء اللعبة عند إرسال النتيجة فعلاً
+// تحديث inline_message_id عند إرسال النتيجة فعلاً
 bot.on('chosen_inline_result', async (res) => {
   try {
     const { result_id, from, inline_message_id } = res;
     if (!result_id || !inline_message_id) return;
 
-    const parts = result_id.split(':'); // baseId : X|O : bet
-    const gameId = parts[0];
-    const symbol = parts[1];
-    const bet = parseInt(parts[2] || '0', 10) || 0;
-
-    if (!gameId || (symbol !== 'X' && symbol !== 'O')) return;
-
-    const p1 = {
-      id: from.id,
-      name: from.first_name || from.username || 'لاعب',
-      username: from.username || null,
-    };
-    ensurePlayer(from);
-
-    games[gameId] = {
-      id: gameId,
-      inline_message_id,
-      status: 'waiting_opponent',
-      board: newBoard(),
-      turn: null,
-      pX: symbol === 'X' ? p1 : null,
-      pO: symbol === 'O' ? p1 : null,
-      p1,
-      p2: null,
-      icons: { X: '❌', O: '⭕', empty: '⬜' },
-      bet: bet > 0 ? bet : 0,
-      stakeActive: false,
-    };
+    // اللعبة موجودة بالفعل من inline_query، نحدث inline_message_id فقط
+    const game = games[result_id];
+    if (game) {
+      game.inline_message_id = inline_message_id;
+      console.log(`✅ تم تحديث اللعبة ${result_id} بـ inline_message_id`);
+    } else {
+      console.warn(`⚠️ لم يتم العثور على اللعبة ${result_id} في chosen_inline_result`);
+    }
   } catch (err) {
     console.error('chosen_inline_result error:', err.message);
   }
@@ -1035,10 +1056,18 @@ bot.on('callback_query', async (query) => {
 
   // ---------- JOIN PVP ----------
   if (data.startsWith('join:')) {
-    const gameId = data.split(':')[1];
+    const gameId = data.replace('join:', '');
     const game = games[gameId];
 
-    if (!game || game.status !== 'waiting_opponent') {
+    if (!game) {
+      await bot.answerCallbackQuery(id, {
+        text: '❌ اللعبة غير موجودة. حاول مرة أخرى.',
+        show_alert: true,
+      }).catch(() => {});
+      return;
+    }
+
+    if (game.status !== 'waiting_opponent') {
       await bot.answerCallbackQuery(id, {
         text: '❌ هذا التحدي غير متاح الآن.',
       }).catch(() => {});
@@ -1055,6 +1084,15 @@ bot.on('callback_query', async (query) => {
     if (game.p2) {
       await bot.answerCallbackQuery(id, {
         text: '⚠️ تم اختيار الخصم بالفعل.',
+      }).catch(() => {});
+      return;
+    }
+
+    // التحقق من وجود inline_message_id
+    if (!game.inline_message_id) {
+      await bot.answerCallbackQuery(id, {
+        text: '⏳ جاري تحميل اللعبة... حاول مرة أخرى بعد ثانية.',
+        show_alert: false,
       }).catch(() => {});
       return;
     }
