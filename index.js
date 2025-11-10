@@ -319,6 +319,7 @@ function startTournamentRound(tId) {
   t.currentMatchIndex = 0;
   t.winners = [];
   t.byePlayer = null;
+  t.replayCount = 0;
   t.currentPlayers = t.matchList[0];
   t.board = newBoard();
   t.turn = 'X';
@@ -704,6 +705,8 @@ bot.onText(/^(?:\/tournament(?:@\w+)?|\/بطولة(?:@\w+)?)(?:\s|$)/, (msg) => 
     board: null,
     turn: null,
     messageId: null,
+      // عداد لإعادة المباراة فى حالة التعادل. سيتم إعادة التعيين عند كل مباراة جديدة
+      replayCount: 0,
   };
   bot
     .sendMessage(
@@ -1181,20 +1184,16 @@ bot.on('callback_query', async (query) => {
       t.board[i][j] = tSymbol;
       t.turn = tSymbol === 'X' ? 'O' : 'X';
       const winnerSymbolT = checkWinner(t.board);
+      const isDraw = !winnerSymbolT && t.board.flat().every((c) => c !== ' ');
       let header = '';
-      if (winnerSymbolT || t.board.flat().every((c) => c !== ' ')) {
-        // انتهت المباراة الحالية (فوز أو تعادل)
-        // حدد اللاعب الفائز أو اختر عشوائياً فى حالة التعادل
-        let winnerUser;
-        if (winnerSymbolT) {
-          winnerUser = winnerSymbolT === 'X' ? t.currentPlayers[0] : t.currentPlayers[1];
-        } else {
-          // تعادل: اختيار فائز عشوائى للمضى قدماً
-          winnerUser = Math.random() < 0.5 ? t.currentPlayers[0] : t.currentPlayers[1];
-        }
+      if (winnerSymbolT) {
+        // يوجد فائز فى هذه المباراة
+        const winnerUser = winnerSymbolT === 'X' ? t.currentPlayers[0] : t.currentPlayers[1];
         // منح نقاط الفوز فى المباراة لأغراض الإحصائيات الفردية
         const tempGame = { players: [t.currentPlayers[0], t.currentPlayers[1]] };
-        awardPointsTwoPlayerGame(tempGame, winnerUser.id === t.currentPlayers[0].id ? 'X' : (winnerUser.id === t.currentPlayers[1].id ? 'O' : null));
+        awardPointsTwoPlayerGame(tempGame, winnerSymbolT);
+        // إعادة تعيين عداد إعادة المباراة
+        t.replayCount = 0;
         // إضافة الفائز إلى قائمة الفائزين لهذه الجولة
         t.winners.push(winnerUser);
         // الانتقال إلى المباراة التالية أو المرحلة التالية
@@ -1232,31 +1231,37 @@ bot.on('callback_query', async (query) => {
               const p1n2 = t.currentPlayers[0].name;
               const p2n2 = t.currentPlayers[1].name;
               header = `🎮 الجولة النهائية (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
-            } else {
-              // لا يوجد فائزون؟ هذا لا يجب أن يحدث، ولكن لإعادة الضبط
-              // إعادة البطولة
+            } else if (t.winners.length === 1) {
+              // لاعب واحد فاز من دور الستة: يتوج بالفوز مباشرة
+              const champion = t.winners[0];
+              awardTournamentWinner(champion);
+              header = `🏆 الفائز بالبطولة: ${champion.name}!`;
               delete tournaments[tId];
-              await bot.editMessageText('⚠️ حدث خطأ فى البطولة وتم إلغاؤها.', {
-                chat_id: t.chatId,
-                message_id: t.messageId,
-              });
-              await bot.answerCallbackQuery(query.id);
-              return;
+            } else {
+              // لا يوجد فائزون: البطولة تنتهى بدون فائز
+              header = '🏆 لم يحقق أحد الفوز. البطولة انتهت بدون فائز.';
+              delete tournaments[tId];
             }
           }
         } else if (t.stage === 'semi_final') {
           // الفائز فى نصف النهائى سيواجه اللاعب المنتظر فى النهائى
           t.stage = 'final';
-          // إضافة الفائز إلى القائمة (ليتم استخدامه فى النهائى مع byePlayer)
-          // t.winners قد تكون فارغة هنا؛ سنختار الفائز فقط
           const bye = t.byePlayer;
-          t.currentPlayers = [winnerUser, bye];
-          t.byePlayer = null;
-          t.board = newBoard();
-          t.turn = 'X';
-          const p1n2 = t.currentPlayers[0].name;
-          const p2n2 = t.currentPlayers[1].name;
-          header = `🎮 الجولة النهائية (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
+          if (!bye) {
+            // لا يوجد لاعب منتظر: الفوز فى نصف النهائى يمنح البطولة مباشرة
+            const champion = winnerUser;
+            awardTournamentWinner(champion);
+            header = `🏆 الفائز بالبطولة: ${champion.name}!`;
+            delete tournaments[tId];
+          } else {
+            t.currentPlayers = [winnerUser, bye];
+            t.byePlayer = null;
+            t.board = newBoard();
+            t.turn = 'X';
+            const p1n2 = t.currentPlayers[0].name;
+            const p2n2 = t.currentPlayers[1].name;
+            header = `🎮 الجولة النهائية (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
+          }
         } else if (t.stage === 'final') {
           // النهائي: تم تحديد الفائز بالبطولة
           const champion = winnerUser;
@@ -1288,10 +1293,123 @@ bot.on('callback_query', async (query) => {
         }
         await bot.answerCallbackQuery(query.id);
         return;
+      } else if (isDraw) {
+        // تعادل: إما إعادة المباراة أو إقصاء كلا اللاعبين بعد التعادل الثانى
+        if (!t.replayCount) {
+          // المحاولة الأولى للتعادل: أعد المباراة بنفس اللاعبين
+          t.replayCount = 1;
+          t.board = newBoard();
+          t.turn = 'X';
+          const p1n = t.currentPlayers[0].name;
+          const p2n = t.currentPlayers[1].name;
+          if (t.stage === 'round_of_6') {
+            header = `🤝 تعادل!\n\nإعادة المباراة (محاولة 2/2)\n${p1n} vs ${p2n}\n🎯 دور ${p1n} (❌)`;
+          } else if (t.stage === 'semi_final') {
+            header = `🤝 تعادل!\n\nإعادة المباراة (محاولة 2/2)\n${p1n} vs ${p2n}\n🎯 دور ${p1n} (❌)`;
+          } else if (t.stage === 'final') {
+            header = `🤝 تعادل!\n\nإعادة المباراة (محاولة 2/2)\n${p1n} vs ${p2n}\n🎯 دور ${p1n} (❌)`;
+          }
+          try {
+            await bot.editMessageText(header, {
+              chat_id: t.chatId,
+              message_id: t.messageId,
+              ...renderBoard(t.board),
+            });
+          } catch (e) {
+            // تجاهل الأخطاء
+          }
+          await bot.answerCallbackQuery(query.id);
+          return;
+        } else {
+          // التعادل الثانى: إقصاء كلا اللاعبين وعدم إضافة فائز
+          t.replayCount = 0;
+          // لا يتم إضافة أحد إلى قائمة الفائزين
+          if (t.stage === 'round_of_6') {
+            t.currentMatchIndex++;
+            if (t.currentMatchIndex < t.matchList.length) {
+              // ابدأ المباراة التالية
+              t.currentPlayers = t.matchList[t.currentMatchIndex];
+              t.board = newBoard();
+              t.turn = 'X';
+              const p1n = t.currentPlayers[0].name;
+              const p2n = t.currentPlayers[1].name;
+              header = `🎮 الجولة الأولى (دور 6)\n${p1n} vs ${p2n}\n🎯 دور ${p1n} (❌)`;
+            } else {
+              // جميع المباريات فى دور الستة انتهت، انتقل إلى المرحلة التالية بناءً على عدد الفائزين
+              if (t.winners.length > 2) {
+                const shuffledWinners = [...t.winners].sort(() => Math.random() - 0.5);
+                t.currentPlayers = [shuffledWinners[0], shuffledWinners[1]];
+                t.byePlayer = shuffledWinners[2];
+                t.stage = 'semi_final';
+                t.board = newBoard();
+                t.turn = 'X';
+                t.winners = [];
+                const p1n2 = t.currentPlayers[0].name;
+                const p2n2 = t.currentPlayers[1].name;
+                header = `🎮 نصف النهائى (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
+              } else if (t.winners.length === 2) {
+                t.currentPlayers = [t.winners[0], t.winners[1]];
+                t.stage = 'final';
+                t.board = newBoard();
+                t.turn = 'X';
+                t.winners = [];
+                const p1n2 = t.currentPlayers[0].name;
+                const p2n2 = t.currentPlayers[1].name;
+                header = `🎮 الجولة النهائية (1 ضد 1)\n${p1n2} vs ${p2n2}\n🎯 دور ${p1n2} (❌)`;
+              } else if (t.winners.length === 1) {
+                const champion = t.winners[0];
+                awardTournamentWinner(champion);
+                header = `🏆 الفائز بالبطولة: ${champion.name}!`;
+                delete tournaments[tId];
+              } else {
+                header = '🏆 لم يحقق أحد الفوز. البطولة انتهت بدون فائز.';
+                delete tournaments[tId];
+              }
+            }
+          } else if (t.stage === 'semi_final') {
+            // إقصاء اللاعبين فى نصف النهائى: إذا كان هناك لاعب انتظار، يصبح هو البطل، وإلا تنتهى البطولة
+            const bye = t.byePlayer;
+            if (bye) {
+              const champion = bye;
+              awardTournamentWinner(champion);
+              header = `🏆 الفائز بالبطولة: ${champion.name}!`;
+            } else {
+              header = '🏆 لم يحقق أحد الفوز. البطولة انتهت بدون فائز.';
+            }
+            delete tournaments[tId];
+          } else if (t.stage === 'final') {
+            // إقصاء اللاعبين فى النهائى: تنتهى البطولة بدون فائز
+            header = '🏆 لم يحقق أحد الفوز. البطولة انتهت بدون فائز.';
+            delete tournaments[tId];
+          }
+          // بعد الانتقال أو إنهاء البطولة، أرسل الرسالة المناسبة
+          if (tournaments[tId]) {
+            try {
+              await bot.editMessageText(header, {
+                chat_id: t.chatId,
+                message_id: t.messageId,
+                ...renderBoard(t.board),
+              });
+            } catch (e) {
+              // تجاهل الأخطاء
+            }
+          } else {
+            try {
+              await bot.editMessageText(header, {
+                chat_id: t.chatId,
+                message_id: t.messageId,
+              });
+            } catch (e) {
+              // تجاهل الأخطاء
+            }
+          }
+          await bot.answerCallbackQuery(query.id);
+          return;
+        }
       } else {
         // المباراة لم تنته بعد: إعداد العنوان للمرحلة الحالية
-        let p1name = t.currentPlayers[0].name;
-        let p2name = t.currentPlayers[1].name;
+        const p1name = t.currentPlayers[0].name;
+        const p2name = t.currentPlayers[1].name;
         if (t.stage === 'round_of_6') {
           header = `🎮 الجولة الأولى (دور 6)\n${p1name} vs ${p2name}\n🎯 دور ${t.turn === 'X' ? p1name : p2name}`;
         } else if (t.stage === 'semi_final') {
