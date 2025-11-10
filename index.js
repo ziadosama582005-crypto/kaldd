@@ -935,7 +935,7 @@ bot.on('callback_query', async (query) => {
         '• اللعب ضد البوت: من القائمة أو /bot\n' +
         '• المتجر: /shop\n' +
         '• البنك: /bank\n' +
-        '• الهدايا: /gift\n`;
+        '• الهدايا: /gift\n';
       await bot.editMessageText(txt, {
         chat_id: message.chat.id,
         message_id: message.message_id,
