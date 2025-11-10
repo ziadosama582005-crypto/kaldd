@@ -1,40 +1,32 @@
 // ==================================================
-// 🤖 XO Inline Bot — تحديات + رهانات + متجر + بوت AI
-// كل اللعب عبر @Bot play
+// 🤖 XO BOT v10 — نسخة محسّنة + Inline Mode 🇸🇦
 // ==================================================
 
 require('dotenv').config();
 const fs = require('fs');
 const TelegramBot = require('node-telegram-bot-api');
 
+// ==================================================
+// 🔐 تحميل التوكن من البيئة
+// ==================================================
 const token = process.env.BOT_TOKEN ? process.env.BOT_TOKEN.trim() : null;
+console.log('🔍 فحص BOT_TOKEN...');
 if (!token) {
   console.error('❌ BOT_TOKEN غير موجود في البيئة!');
   process.exit(1);
 }
 
+// ==================================================
+// 🚀 إنشاء البوت
+// ==================================================
 const bot = new TelegramBot(token, { polling: true });
 let botUsername = null;
 
 // ==================================================
-// 🧾 إدارة اللاعبين
+// 💾 بيانات اللاعبين
 // ==================================================
-
-const PLAYERS_FILE = 'players.json';
 let players = {};
-
-function loadPlayers() {
-  try {
-    if (!fs.existsSync(PLAYERS_FILE)) {
-      fs.writeFileSync(PLAYERS_FILE, '{}', 'utf8');
-    }
-    const data = fs.readFileSync(PLAYERS_FILE, 'utf8');
-    players = data && data.trim() ? JSON.parse(data) : {};
-  } catch (err) {
-    console.error('⚠️ خطأ في قراءة players.json:', err.message);
-    players = {};
-  }
-}
+const PLAYERS_FILE = 'players.json';
 
 function savePlayers() {
   try {
@@ -44,160 +36,118 @@ function savePlayers() {
   }
 }
 
+try {
+  if (!fs.existsSync(PLAYERS_FILE)) fs.writeFileSync(PLAYERS_FILE, '{}', 'utf8');
+  const data = fs.readFileSync(PLAYERS_FILE, 'utf8');
+  players = data && data.trim() ? JSON.parse(data) : {};
+} catch {
+  players = {};
+  savePlayers();
+}
+
+// ==================================================
+// 📅 بيانات الأسبوع (إعادة تعيين أسبوعية)
+// ==================================================
+const WEEKLY_DATA_FILE = 'weekly.json';
+let weeklyData = { lastReset: 0, history: [] };
+
+function loadWeeklyData() {
+  try {
+    if (!fs.existsSync(WEEKLY_DATA_FILE)) {
+      fs.writeFileSync(WEEKLY_DATA_FILE, JSON.stringify(weeklyData, null, 2), 'utf8');
+    }
+    const data = fs.readFileSync(WEEKLY_DATA_FILE, 'utf8');
+    weeklyData = data && data.trim() ? JSON.parse(data) : { lastReset: 0, history: [] };
+  } catch {
+    weeklyData = { lastReset: 0, history: [] };
+    saveWeeklyData();
+  }
+}
+
+function saveWeeklyData() {
+  try {
+    fs.writeFileSync(WEEKLY_DATA_FILE, JSON.stringify(weeklyData, null, 2), 'utf8');
+  } catch (err) {
+    console.error('⚠️ خطأ أثناء حفظ بيانات الأسبوع:', err.message);
+  }
+}
+
+loadWeeklyData();
+
+function checkWeeklyReset() {
+  const now = Date.now();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  if (!weeklyData.lastReset || now - weeklyData.lastReset >= weekMs) {
+    const sorted = Object.values(players)
+      .sort((a, b) => (b.points || 0) - (a.points || 0))
+      .slice(0, 3)
+      .map((p) => ({ name: p.name, points: p.points || 0 }));
+
+    weeklyData.history = weeklyData.history || [];
+    weeklyData.history.push({
+      date: new Date().toISOString(),
+      winners: sorted,
+    });
+
+    weeklyData.lastReset = now;
+
+    // تصفير نقاط كل اللاعبين
+    Object.values(players).forEach((p) => {
+      p.points = 0;
+    });
+
+    saveWeeklyData();
+    savePlayers();
+  }
+}
+
+// ==================================================
+// 🧍‍♂️ إنشاء/تحديث لاعب
+// ==================================================
 function ensurePlayer(user) {
   if (!user || !user.id) return null;
   const id = String(user.id);
-  const username = user.username || null;
-
   if (!players[id]) {
     players[id] = {
       id: user.id,
-      name: user.first_name || username || 'لاعب',
-      username,
-      points: 0,         // تستخدم للرهانات والترتيب
-      coins: 0,          // عملات المتجر
+      name: user.first_name || user.username || 'مستخدم',
+      points: 1, // نقطة ترحيبية
       wins: 0,
       losses: 0,
       draws: 0,
-      ownedSkins: ['default'],
-      activeSkin: 'default',
-      ownedTitles: [],
-      activeTitle: null,
-      ownedTaunts: [],
-      activeTaunt: null,
-      boosts: {
-        winX2: 0,        // مباريات فوز بنقاط مضاعفة
-      },
     };
   } else {
-    players[id].name = user.first_name || username || players[id].name;
-    players[id].username = username || players[id].username || null;
-    players[id].points = players[id].points || 0;
-    players[id].coins = players[id].coins || 0;
+    players[id].name = user.first_name || user.username || players[id].name;
     players[id].wins = players[id].wins || 0;
     players[id].losses = players[id].losses || 0;
     players[id].draws = players[id].draws || 0;
-    players[id].ownedSkins = players[id].ownedSkins || ['default'];
-    if (!players[id].ownedSkins.includes('default')) {
-      players[id].ownedSkins.push('default');
-    }
-    players[id].activeSkin = players[id].activeSkin || 'default';
-    players[id].ownedTitles = players[id].ownedTitles || [];
-    players[id].ownedTaunts = players[id].ownedTaunts || [];
-    players[id].boosts = players[id].boosts || { winX2: 0 };
   }
+  savePlayers();
   return players[id];
 }
 
-loadPlayers();
-
-function escapeHTML(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
 // ==================================================
-// 🛍 المتجر (سكينات + ألقاب + Taunts + Boosts بسيطة)
+// 🎮 وظائف لوحة XO
 // ==================================================
-
-// سكينات فعّالة
-const SHOP_SKINS = {
-  default: {
-    id: 'default',
-    name: '🎲 النمط العادي',
-    price: 0,
-    icons: { X: '❌', O: '⭕', empty: '⬜' },
-  },
-  fire: {
-    id: 'fire',
-    name: '🔥 لهب النار',
-    price: 40,
-    icons: { X: '🔥', O: '⚡', empty: '⬛' },
-  },
-  ice: {
-    id: 'ice',
-    name: '❄️ الجليد',
-    price: 40,
-    icons: { X: '❄️', O: '💙', empty: '🧊' },
-  },
-  skull: {
-    id: 'skull',
-    name: '💀 الظلام',
-    price: 60,
-    icons: { X: '💀', O: '☠️', empty: '⬛' },
-  },
-  neon: {
-    id: 'neon',
-    name: '🌈 نيون',
-    price: 70,
-    icons: { X: '🟩', O: '🟦', empty: '⬜' },
-  },
-  crown: {
-    id: 'crown',
-    name: '👑 الملكي',
-    price: 100,
-    icons: { X: '👑', O: '⚜️', empty: '⬜' },
-  },
-  hero: {
-    id: 'hero',
-    name: '🦸 البطل',
-    price: 80,
-    icons: { X: '🦸', O: '⭐', empty: '⬜' },
-  },
-  space: {
-    id: 'space',
-    name: '🌌 الفضاء',
-    price: 90,
-    icons: { X: '🌕', O: '🪐', empty: '⬛' },
-  },
-};
-
-// عناصر أخرى (اقتراحات كثيرة، بعضها تجميلي)
-const SHOP_EXTRA = [
-  // ألقاب
-  { id: 'title_king', type: 'title', name: '👑 لقب الملك', price: 50 },
-  { id: 'title_legend', type: 'title', name: '💎 الأسطورة', price: 80 },
-  { id: 'title_hunter', type: 'title', name: '🔥 صائد الانتصارات', price: 60 },
-  { id: 'title_wolf', type: 'title', name: '🐺 الذيب', price: 40 },
-  { id: 'title_brain', type: 'title', name: '🧠 المخطط', price: 40 },
-  // Taunts
-  { id: 'taunt_fire', type: 'taunt', name: '🔥 أحرقك بالذكاء!', price: 25 },
-  { id: 'taunt_king', type: 'taunt', name: '👑 لا تلعب مع الملوك.', price: 25 },
-  { id: 'taunt_skull', type: 'taunt', name: '💀 نهايتك قريبة.', price: 25 },
-  // Boosts بسيطة
-  { id: 'boost_x2_3', type: 'boost_winX2', name: '🎯 مضاعف فوز ×2 (3 مباريات)', price: 60, amount: 3 },
-  { id: 'boost_x2_1', type: 'boost_winX2', name: '⚡ مضاعف فوز ×2 (مباراة واحدة)', price: 25, amount: 1 },
-];
-
-// عنوان حسب النقاط
-function getTitle(p) {
-  const pts = p.points || 0;
-  if (p.activeTitle) return p.activeTitle;
-  if (pts >= 300) return '🔥 أسطورة XO';
-  if (pts >= 150) return '👑 محترف XO';
-  if (pts >= 50) return '🎯 لاعب نشيط';
-  return '🌱 مبتدئ';
-}
-
-// تطبيق البوست على نقاط الفوز
-function applyWinBoost(p, base) {
-  let extra = 0;
-  if (p.boosts && p.boosts.winX2 > 0) {
-    extra = base; // x2 → تضيف نفس المقدار مرة ثانية
-    p.boosts.winX2 -= 1;
-    if (p.boosts.winX2 < 0) p.boosts.winX2 = 0;
-  }
-  return base + extra;
-}
-
-// ==================================================
-// 🎮 أساس XO
-// ==================================================
-
 function newBoard() {
-  return [[' ', ' ', ' '], [' ', ' ', ' '], [' ', ' ', ' ']];
+  return [
+    [' ', ' ', ' '],
+    [' ', ' ', ' '],
+    [' ', ' ', ' '],
+  ];
+}
+
+function renderBoard(board) {
+  return {
+    reply_markup: {
+      inline_keyboard: board.map((row, i) =>
+        row.map((cell, j) => ({
+          text: cell === ' ' ? '⬜' : cell === 'X' ? '❌' : '⭕',
+          callback_data: `${i},${j}`,
+        }))
+      ),
+    },
+  };
 }
 
 function checkWinner(b) {
@@ -210,1197 +160,947 @@ function checkWinner(b) {
   return null;
 }
 
-function generateGameId() {
-  return 'g_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// ==================================================
+// 🧼 أدوات
+// ==================================================
+function escapeHTML(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
-// PvP inline games
-// game = { id, inline_message_id, status, board, turn, pX, pO, p1, p2, icons, bet, stakeActive }
-const games = {};
-
-// vs Bot
-// botGame = { id, chatId, messageId, board, turn, userId, level }
-const botGames = {};
-
-// بناء سكينات اللعبة
-function buildIconsForGame(game) {
-  const pXFull = ensurePlayer({ id: game.pX.id, first_name: game.pX.name, username: game.pX.username });
-  const pOFull = ensurePlayer({ id: game.pO.id, first_name: game.pO.name, username: game.pO.username });
-
-  const skinX = SHOP_SKINS[pXFull.activeSkin] || SHOP_SKINS.default;
-  const skinO = SHOP_SKINS[pOFull.activeSkin] || SHOP_SKINS.default;
-
-  game.icons = {
-    X: skinX.icons.X,
-    O: skinO.icons.O,
-    empty: '⬜',
-  };
+function escapeMarkdownV2(text) {
+  return String(text).replace(/([_*!\[\]()~`>#+=|{}\.!\-])/g, '\\$1');
 }
 
-// لوحة مخصصة حسب اللعبة
-function renderBoardInline(game) {
-  return {
-    inline_keyboard: game.board.map((row, i) =>
-      row.map((cell, j) => {
-        let t = game.icons.empty;
-        if (cell === 'X') t = game.icons.X;
-        else if (cell === 'O') t = game.icons.O;
-        return {
-          text: t,
-          callback_data: `mv:${game.id}:${i}:${j}`,
-        };
-      })
-    ),
-  };
-}
-
-// نقاط + رهان
-function awardPointsAndBet(game, winnerSymbol) {
-  if (!game.pX || !game.pO) return;
-
-  const pX = ensurePlayer({ id: game.pX.id, first_name: game.pX.name, username: game.pX.username });
-  const pO = ensurePlayer({ id: game.pO.id, first_name: game.pO.name, username: game.pO.username });
-
-  const bet = game.bet || 0;
-  const stakeActive = !!game.stakeActive;
+// ==================================================
+// 🏅 منح نقاط
+// ==================================================
+function awardPointsPrivateGame(gameId, winnerSymbol) {
+  checkWeeklyReset();
+  const game = games[gameId];
+  if (!game || !game.p1 || !game.p2) return;
+  const p1 = ensurePlayer(game.p1);
+  const p2 = ensurePlayer(game.p2);
 
   if (!winnerSymbol) {
-    // تعادل
-    pX.draws++;
-    pO.draws++;
-    pX.coins += 3;
-    pO.coins += 3;
-    if (stakeActive && bet > 0) {
-      pX.points += bet;
-      pO.points += bet;
-    }
+    p1.draws++;
+    p2.draws++;
+  } else if (winnerSymbol === 'X') {
+    p1.points += 10;
+    p1.wins++;
+    p2.losses++;
   } else {
-    if (winnerSymbol === 'X') {
-      pX.wins++;
-      pO.losses++;
-      let base = 10;
-      base = applyWinBoost(pX, base);
-      pX.points += base;
-      pX.coins += 10;
-      if (stakeActive && bet > 0) pX.points += bet * 2;
-    } else {
-      pO.wins++;
-      pX.losses++;
-      let base = 10;
-      base = applyWinBoost(pO, base);
-      pO.points += base;
-      pO.coins += 10;
-      if (stakeActive && bet > 0) pO.points += bet * 2;
-    }
+    p2.points += 10;
+    p2.wins++;
+    p1.losses++;
   }
+  savePlayers();
+}
 
+function awardPointsTwoPlayerGame(game, winnerSymbol) {
+  checkWeeklyReset();
+  if (!game || !game.players || game.players.length !== 2) return;
+
+  const p1User = game.players[0];
+  const p2User = game.players[1];
+  const p1 = ensurePlayer({ id: p1User.id, name: p1User.name });
+  const p2 = ensurePlayer({ id: p2User.id, name: p2User.name });
+
+  if (!winnerSymbol) {
+    p1.draws++;
+    p2.draws++;
+  } else if (winnerSymbol === 'X') {
+    p1.points += 10;
+    p1.wins++;
+    p2.losses++;
+  } else {
+    p2.points += 10;
+    p2.wins++;
+    p1.losses++;
+  }
+  savePlayers();
+}
+
+// (موجود لكن حالياً للاستخدام فى الأنماط الجماعية)
+function awardPointsGroup6Game(game, winnerSymbol) {
+  checkWeeklyReset();
+  if (!game || !game.teams || !game.teams.X || !game.teams.O) return;
+
+  if (!winnerSymbol) {
+    const all = [...game.teams.X, ...game.teams.O];
+    all.forEach((u) => {
+      const p = ensurePlayer({ id: u.id, name: u.name });
+      p.draws++;
+    });
+  } else {
+    const winners = winnerSymbol === 'X' ? game.teams.X : game.teams.O;
+    const losers = winnerSymbol === 'X' ? game.teams.O : game.teams.X;
+    winners.forEach((u) => {
+      const p = ensurePlayer({ id: u.id, name: u.name });
+      p.points += 10;
+      p.wins++;
+    });
+    losers.forEach((u) => {
+      const p = ensurePlayer({ id: u.id, name: u.name });
+      p.losses++;
+    });
+  }
   savePlayers();
 }
 
 // ==================================================
-// 🏠 القائمة الرئيسية وواجهات
+// 🧠 الذاكرة العامة
 // ==================================================
+const games = {};        // كل الألعاب (خاص + قروبات + inline)
+const challenges = {};   // تحديات /challenge
+const tournaments = {};  // البطولات
 
-function mainMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: '👥 كيف أتحدى صديقي؟', callback_data: 'menu:friend' }],
-      [{ text: '🤖 اللعب مع البوت', callback_data: 'menu:bot' }],
-      [
-        { text: '🏦 البنك', callback_data: 'menu:bank' },
-        { text: '🌍 المتصدرين', callback_data: 'menu:board' },
-      ],
-      [{ text: '🛍 المتجر', callback_data: 'menu:shop' }],
-      [{ text: '🎁 الهدايا', callback_data: 'menu:gift' }],
-      [{ text: 'ℹ️ مساعدة', callback_data: 'menu:help' }],
-    ],
-  };
+function generateGameId() {
+  return 'g_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
-
-function backHomeKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: '🏠 رجوع للقائمة', callback_data: 'menu:home' }],
-    ],
-  };
-}
-
-function sendMainMenu(chatId, name) {
-  const text =
-    '👋 أهلاً <b>' + escapeHTML(name || '') + '</b>\n\n' +
-    'كل اللعب هنا يكون عن طريق <b>Inline</b>:\n' +
-    `✅ اكتب في أي مكان: <code>@${escapeHTML(botUsername || 'Bot')} play</code>\n` +
-    `✅ أو: <code>@${escapeHTML(botUsername || 'Bot')} play 10</code> لرهان 10 نقاط.\n\n` +
-    '👇 استخدم الأزرار للتحكم:\n' +
-    '• 👥 شرح اللعب مع صديق\n' +
-    '• 🤖 تحدي البوت\n' +
-    '• 🛍 متجر السكينات والمزايا\n' +
-    '• 🏦 البنك الذهبي\n' +
-    '• 🌍 لوحة المتصدرين\n' +
-    '• 🎁 الهدايا بين اللاعبين\n';
-
-  return bot.sendMessage(chatId, text, {
-    parse_mode: 'HTML',
-    reply_markup: mainMenuKeyboard(),
-  });
-}
-
-// متجر سكينات + عناصر إضافية
-function buildShopKeyboard(user) {
-  const rows = [];
-
-  // سكينات
-  Object.values(SHOP_SKINS).forEach((skin) => {
-    const owned = user.ownedSkins.includes(skin.id);
-    const active = user.activeSkin === skin.id;
-
-    if (skin.id === 'default') {
-      rows.push([
-        {
-          text: active ? `${skin.name} ✅` : `${skin.name}`,
-          callback_data: 'shop:none:default',
-        },
-      ]);
-    } else if (!owned) {
-      rows.push([
-        {
-          text: `${skin.name} — ${skin.price}💰`,
-          callback_data: `shop:buySkin:${skin.id}`,
-        },
-      ]);
-    } else if (active) {
-      rows.push([
-        {
-          text: `${skin.name} (مفعل ✅)`,
-          callback_data: `shop:none:${skin.id}`,
-        },
-      ]);
-    } else {
-      rows.push([
-        {
-          text: `تفعيل ${skin.name}`,
-          callback_data: `shop:useSkin:${skin.id}`,
-        },
-      ]);
-    }
-  });
-
-  // عناصر إضافية (ألقاب / Taunts / Boosts)
-  SHOP_EXTRA.forEach((item) => {
-    rows.push([
-      {
-        text: `${item.name} — ${item.price}💰`,
-        callback_data: `shop:buyExtra:${item.id}`,
-      },
-    ]);
-  });
-
-  rows.push([{ text: '🏠 رجوع', callback_data: 'menu:home' }]);
-
-  return { inline_keyboard: rows };
-}
-
-function sendShop(chatId, user) {
-  const text =
-    '🛍 <b>متجر XO</b>\n' +
-    `💰 رصيدك: <code>${user.coins}</code> عملة\n\n` +
-    '• اشترِ سكينات لتغيير شكل اللعبة.\n' +
-    '• ألقاب وعبارات وBoosts لتميز حسابك.';
-
-  return bot.sendMessage(chatId, text, {
-    parse_mode: 'HTML',
-    reply_markup: buildShopKeyboard(user),
-  });
+function generateTournamentId() {
+  return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
 // ==================================================
-// 🚀 جاهزية البوت
+// 🔔 جاهزية البوت + الأوامر
 // ==================================================
-
 bot.getMe().then((me) => {
   botUsername = me.username;
   console.log(`✅ البوت جاهز: @${botUsername}`);
 
   bot.setMyCommands([
-    { command: 'start', description: 'القائمة الرئيسية' },
-    { command: 'profile', description: 'عرض ملفك' },
-    { command: 'board', description: 'لوحة المتصدرين' },
-    { command: 'shop', description: 'متجر XO' },
-    { command: 'gift', description: 'إرسال هدية عملات' },
-    { command: 'bank', description: 'البنك الذهبي' },
-    { command: 'bot', description: 'تحدي البوت' },
+    { command: 'start', description: 'بدء الاستخدام والترحيب' },
+    { command: 'newgame', description: 'بدء لعبة ثنائية في القروب' },
+    { command: 'newgame6', description: 'بدء تحدي 2 ضد 2 في القروب' },
+    { command: 'challenge', description: 'تحدي صديق في الخاص' },
+    { command: 'profile', description: 'عرض ملفك الشخصي وإحصائياتك' },
+    { command: 'board', description: 'عرض لوحة النتائج' },
+    { command: 'tournament', description: 'بدء بطولة في القروب' },
   ]);
 });
 
 // ==================================================
-// /start — خاص فقط
+// 🏁 /start — ترحيب
 // ==================================================
+bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
+  const user = msg.from;
+  const chatId = msg.chat.id;
+  const param = match[1];
 
-bot.onText(/\/start(?:\s+.*)?/, (msg) => {
   if (msg.chat.type !== 'private') return;
-  const p = ensurePlayer(msg.from);
-  sendMainMenu(msg.chat.id, p.name);
-});
 
-// ==================================================
-// /profile
-// ==================================================
+  const player = ensurePlayer(user);
 
-bot.onText(/^\/(?:profile|ملفي)(?:@\w+)?$/, (msg) => {
-  const p = ensurePlayer(msg.from);
-  const title = getTitle(p);
+  // تحدي خاص
+  if (param && param.startsWith('ch_')) {
+    const id = param.replace('ch_', '');
+    const ch = challenges[id];
+    if (!ch) return bot.sendMessage(chatId, '❌ هذا التحدي غير صالح أو انتهى.');
+    if (ch.p1.id === user.id)
+      return bot.sendMessage(chatId, '⚠️ لا يمكنك تحدي نفسك.');
 
-  const text =
-    `👤 <b>${escapeHTML(p.name)}</b>\n` +
-    `🏆 اللقب: <b>${escapeHTML(title)}</b>\n` +
-    `🏅 النقاط: <code>${p.points}</code>\n` +
-    `💰 العملات: <code>${p.coins}</code>\n` +
-    `✅ الفوز: <code>${p.wins}</code> | ❌ <code>${p.losses}</code> | 🤝 <code>${p.draws}</code>\n` +
-    `🎨 السكين النشط: <b>${(SHOP_SKINS[p.activeSkin] && SHOP_SKINS[p.activeSkin].name) || '🎲 النمط العادي'}</b>`;
+    ch.p2 = { id: user.id, name: user.first_name || user.username || 'مستخدم' };
+    ch.board = newBoard();
+    ch.turn = 'X';
 
-  bot.sendMessage(msg.chat.id, text, {
-    parse_mode: 'HTML',
-    reply_markup: backHomeKeyboard(),
-  });
-});
-
-// ==================================================
-// /board
-// ==================================================
-
-bot.onText(/^\/(?:board|اللوحة)(?:@\w+)?$/, (msg) => {
-  const list = Object.values(players).sort((a, b) => (b.points || 0) - (a.points || 0));
-  if (!list.length) {
-    return bot.sendMessage(
-      msg.chat.id,
-      'لا توجد بيانات بعد.\nابدأ أول تحدي عبر @' + botUsername + ' play'
+    const msg1 = await bot.sendMessage(
+      ch.p1.id,
+      `🎮 ضد ${ch.p2.name}\n🎯 دورك أنت (❌)`,
+      { ...renderBoard(ch.board) }
     );
-  }
-
-  const top = list.slice(0, 20);
-  const lines = top.map(
-    (p, i) => `${i + 1}. ${p.name} — ${p.points} نقطة (${getTitle(p)})`
-  );
-
-  bot.sendMessage(msg.chat.id, '🌍 التصنيف العالمي:\n' + lines.join('\n'), {
-    reply_markup: backHomeKeyboard(),
-  });
-});
-
-// ==================================================
-// /bank
-// ==================================================
-
-bot.onText(/^\/(?:bank|wallet|بنك)(?:@\w+)?$/, (msg) => {
-  const p = ensurePlayer(msg.from);
-  const text =
-    '🏦 <b>البنك الذهبي</b>\n' +
-    `👤 ${escapeHTML(p.name)}\n\n` +
-    `🏅 نقاطك: <code>${p.points}</code>\n` +
-    `💰 عملاتك: <code>${p.coins}</code>\n\n` +
-    'يمكنك استخدام النقاط للرهان، والعملات للمتجر.\n' +
-    'إذا رصيدك أقل من الرهان → ما تقدر تدخل التحدي.';
-
-  bot.sendMessage(msg.chat.id, text, {
-    parse_mode: 'HTML',
-    reply_markup: backHomeKeyboard(),
-  });
-});
-
-// ==================================================
-// /shop
-// ==================================================
-
-bot.onText(/^\/shop(?:@\w+)?$/, (msg) => {
-  const p = ensurePlayer(msg.from);
-  sendShop(msg.chat.id, p);
-});
-
-// ==================================================
-// /gift @user amount
-// ==================================================
-
-bot.onText(/^\/gift(?:@\w+)?\s+(\S+)\s+(\d+)$/, (msg, match) => {
-  const fromPlayer = ensurePlayer(msg.from);
-  const targetRef = (match[1] || '').trim();
-  const amount = parseInt(match[2], 10);
-
-  if (!amount || amount <= 0) {
-    return bot.sendMessage(msg.chat.id, '❌ قيمة غير صالحة.');
-  }
-  if (fromPlayer.coins < amount) {
-    return bot.sendMessage(msg.chat.id, '💰 رصيدك لا يكفي.');
-  }
-
-  let targetPlayer = null;
-
-  if (targetRef.startsWith('@')) {
-    const uname = targetRef.slice(1).toLowerCase();
-    targetPlayer = Object.values(players).find(
-      (p) => p.username && p.username.toLowerCase() === uname
+    const msg2 = await bot.sendMessage(
+      ch.p2.id,
+      `🎮 ضد ${ch.p1.name}\n🎯 دور خصمك الآن`,
+      { ...renderBoard(ch.board) }
     );
-  } else if (/^\d+$/.test(targetRef)) {
-    targetPlayer = players[targetRef] || null;
+
+    games[id] = {
+      type: 'private',
+      board: ch.board,
+      turn: 'X',
+      p1: ch.p1,
+      p2: ch.p2,
+      msgs: {
+        [ch.p1.id]: msg1.message_id,
+        [ch.p2.id]: msg2.message_id,
+      },
+    };
+    delete challenges[id];
+    return;
   }
 
-  if (!targetPlayer) {
-    return bot.sendMessage(
-      msg.chat.id,
-      '❌ اللاعب غير موجود في النظام أو لم يستخدم البوت بعد.'
-    );
-  }
+  const welcome =
+    '👋 أهلاً <b>' +
+    escapeHTML(player.name) +
+    '</b>\n' +
+    'مرحباً بك في <b>XO Bot</b> — التحدي الذكي 🤖🎮\n\n' +
+    '🎯 <b>نقاطك الحالية:</b> <code>' +
+    player.points +
+    '</code>\n' +
+    '✨ الفوز = +10 نقاط\n\n' +
+    '🧠 الأوامر:\n' +
+    '• /newgame — لعبة ثنائية في القروب\n' +
+    '• /newgame6 — تحدي 2 ضد 2 في القروب\n' +
+    '• /challenge — تحدي صديق في الخاص\n' +
+    '• /profile — ملفك الشخصي\n' +
+    '• /board — لوحة النتائج\n' +
+    '• /tournament — بطولة داخل القروب\n\n' +
+    '🎮 تقدر كمان تلعب مباشرة في أي محادثة باستخدام:\n' +
+    '<code>@' + botUsername + ' play</code>\nثم اختر الرمز ❌ أو ⭕️';
+  bot.sendMessage(chatId, welcome, { parse_mode: 'HTML' });
+});
 
-  if (targetPlayer.id === fromPlayer.id) {
-    return bot.sendMessage(msg.chat.id, '❌ لا يمكنك إهداء نفسك.');
+// ==================================================
+// ⚔️ /challenge — تحدي خاص
+// ==================================================
+bot.onText(/\/challenge/, (msg) => {
+  if (msg.chat.type !== 'private') {
+    return bot.sendMessage(msg.chat.id, '❗ هذا الأمر في الخاص فقط.');
   }
-
-  fromPlayer.coins -= amount;
-  if (fromPlayer.coins < 0) fromPlayer.coins = 0;
-  targetPlayer.coins += amount;
-  savePlayers();
+  const user = msg.from;
+  const id = Math.random().toString(36).slice(2, 10);
+  challenges[id] = {
+    p1: { id: user.id, name: user.first_name || user.username || 'مستخدم' },
+  };
+  const startLink = `https://t.me/${botUsername}?start=ch_${id}`;
+  const shareLink =
+    'https://t.me/share/url?url=' +
+    encodeURIComponent(startLink) +
+    '&text=' +
+    encodeURIComponent('🎮 تحدي XO خاص');
 
   bot.sendMessage(
     msg.chat.id,
-    `🎁 ${fromPlayer.name} أهدى ${amount} عملة إلى ${targetPlayer.name}!`
+    '🎮 تم إنشاء التحدي!\nشارك الرابط مع صديقك:',
+    {
+      reply_markup: {
+        inline_keyboard: [[{ text: '🔗 مشاركة التحدي', url: shareLink }]],
+      },
+    }
   );
 });
 
 // ==================================================
-// /bot — اختيار مستوى البوت
+// 👥 /newgame — لعبة ثنائية في القروب
 // ==================================================
-
-bot.onText(/^\/(?:bot|ai|solo)(?:@\w+)?$/, (msg) => {
-  const p = ensurePlayer(msg.from);
+bot.onText(/^\/newgame(?:@\w+)?(?:\s|$)/, (msg) => {
+  if (msg.chat.type === 'private') {
+    return bot.sendMessage(msg.chat.id, '🚫 استخدم هذا الأمر في القروب فقط.');
+  }
   const chatId = msg.chat.id;
+  const user = msg.from;
+  ensurePlayer(user);
 
-  const text =
-    '🤖 <b>تحدي البوت</b>\n' +
-    'اختر مستوى الصعوبة:';
+  const gameId = generateGameId();
+  games[gameId] = {
+    id: gameId,
+    type: 'group',
+    chatId,
+    board: newBoard(),
+    players: [{ id: user.id, name: user.first_name || user.username || 'مستخدم' }],
+    turn: null,
+    messageId: null,
+    timer: null,
+  };
 
-  bot.sendMessage(chatId, text, {
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: '🟢 سهل', callback_data: `botlvl:easy:${p.id}` },
-          { text: '🟡 متوسط', callback_data: `botlvl:medium:${p.id}` },
-          { text: '🔴 صعب', callback_data: `botlvl:hard:${p.id}` },
-        ],
-        [{ text: '🏠 رجوع', callback_data: 'menu:home' }],
-      ],
-    },
-  });
+  bot
+    .sendMessage(
+      chatId,
+      `👤 ${user.first_name} بدأ لعبة جديدة!\n🕓 أمامكم 15 ثانية لانضمام لاعب آخر.`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🎮 انضمام إلى اللعبة', callback_data: 'join:' + gameId }]],
+        },
+      }
+    )
+    .then((sent) => {
+      games[gameId].messageId = sent.message_id;
+      games[gameId].timer = setTimeout(() => {
+        const g = games[gameId];
+        if (!g) return;
+        if (g.players.length < 2) {
+          bot
+            .editMessageText('⏰ انتهى الوقت! لم يكتمل عدد اللاعبين.', {
+              chat_id: chatId,
+              message_id: sent.message_id,
+            })
+            .catch(() => {});
+          clearTimeout(g.timer);
+          delete games[gameId];
+        } else if (!g.turn) {
+          // اكتمال اللاعبين
+          g.turn = 'X';
+          g.players[0].symbol = 'X';
+          g.players[1].symbol = 'O';
+          try {
+            bot.editMessageText(
+              `🎮 ${g.players[0].name} vs ${g.players[1].name}\n🎯 دور ${g.players[0].name} (❌)`,
+              {
+                chat_id: chatId,
+                message_id: sent.message_id,
+                ...renderBoard(g.board),
+              }
+            );
+          } catch {}
+          clearTimeout(g.timer);
+        }
+      }, 15000);
+    });
 });
 
 // ==================================================
-// Inline Mode — @Bot play (+ رهان اختياري)
+// 👥 /newgame6 — 2 ضد 2 (مبني على group4)
 // ==================================================
+bot.onText(/^\/newgame6(?:@\w+)?(?:\s|$)/, (msg) => {
+  if (msg.chat.type === 'private') {
+    return bot.sendMessage(msg.chat.id, '❗ هذا الأمر في القروبات فقط.');
+  }
+  const chatId = msg.chat.id;
+  const user = msg.from;
+  ensurePlayer(user);
 
+  const gameId = generateGameId();
+  games[gameId] = {
+    id: gameId,
+    type: 'group4',
+    chatId,
+    board: newBoard(),
+    players: [{ id: user.id, name: user.first_name || user.username || 'مستخدم' }],
+    teams: null,
+    turn: null,
+    messageId: null,
+    timer: null,
+  };
+
+  bot
+    .sendMessage(
+      chatId,
+      `👤 ${user.first_name} بدأ تحدي 2 ضد 2!\nاضغط للانضمام حتى يكتمل العدد (4 لاعبين).`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🎮 انضمام إلى التحدي', callback_data: 'join6:' + gameId }]],
+        },
+      }
+    )
+    .then((sent) => {
+      games[gameId].messageId = sent.message_id;
+    });
+});
+
+// ==================================================
+// 🧾 /profile — عرض ملف اللاعب
+// ==================================================
+bot.onText(/^(?:\/profile(?:@\w+)?|\/ملفي(?:@\w+)?)/, (msg) => {
+  const player = ensurePlayer(msg.from);
+  checkWeeklyReset();
+  const text =
+    `👤 <b>${escapeHTML(player.name)}</b>\n` +
+    `🏅 النقاط: <code>${player.points}</code>\n` +
+    `✅ الفوز: <code>${player.wins}</code>\n` +
+    `❌ الخسارة: <code>${player.losses}</code>\n` +
+    `🤝 التعادل: <code>${player.draws}</code>\n`;
+  bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
+});
+
+// ==================================================
+// 📊 /board — لوحة النتائج
+// ==================================================
+bot.onText(/^(?:\/board(?:@\w+)?|\/اللوحة(?:@\w+)?)/, (msg) => {
+  checkWeeklyReset();
+  const sorted = Object.values(players).sort(
+    (a, b) => (b.points || 0) - (a.points || 0)
+  );
+  if (!sorted.length) {
+    return bot.sendMessage(msg.chat.id, 'لا توجد بيانات بعد.');
+  }
+  const lines = sorted.map((p, i) => `${i + 1}. ${p.name}: ${p.points || 0} نقطة`);
+
+  loadWeeklyData();
+  let historyText = '';
+  if (weeklyData.history && weeklyData.history.length) {
+    const last = weeklyData.history[weeklyData.history.length - 1];
+    if (last.winners && last.winners.length) {
+      const wLines = last.winners.map(
+        (p, i) => `${i + 1}. ${p.name}: ${p.points} نقطة`
+      );
+      historyText = '\n\n🥇 أفضل لاعبي الأسبوع الماضي:\n' + wLines.join('\n');
+    }
+  }
+
+  bot.sendMessage(msg.chat.id, `📊 لوحة النتائج:\n${lines.join('\n')}${historyText}`);
+});
+
+// ==================================================
+// 🏆 /tournament — (نظام بطولة مبسط / placeholder كما في v9.1)
+// ==================================================
+bot.onText(/^(?:\/tournament(?:@\w+)?|\/بطولة(?:@\w+)?)/, (msg) => {
+  if (msg.chat.type === 'private') {
+    return bot.sendMessage(msg.chat.id, '❗ هذا الأمر في القروبات فقط.');
+  }
+  const chatId = msg.chat.id;
+  const user = msg.from;
+  ensurePlayer(user);
+
+  const tId = generateTournamentId();
+  tournaments[tId] = {
+    id: tId,
+    chatId,
+    participants: [
+      { id: user.id, name: user.first_name || user.username || 'مستخدم' },
+    ],
+    stage: 'waiting',
+    matchList: [],
+    currentMatchIndex: 0,
+    currentPlayers: null,
+    winners: [],
+    byePlayer: null,
+    board: null,
+    turn: null,
+    messageId: null,
+  };
+
+  bot
+    .sendMessage(
+      chatId,
+      `👤 ${user.first_name} بدأ بطولة!\nاضغط للانضمام حتى يكتمل عدد اللاعبين (6).`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🎮 انضمام إلى البطولة', callback_data: 'joinT:' + tId }]],
+        },
+      }
+    )
+    .then((sent) => {
+      tournaments[tId].messageId = sent.message_id;
+    });
+});
+
+// ==================================================
+// 🎮 Inline Mode — @BotUsername play (اختيار الرمز)
+// ==================================================
 bot.on('inline_query', async (query) => {
   try {
     const q = (query.query || '').trim().toLowerCase();
-    let bet = 0;
-    let m;
+    if (!q || q === 'play' || q === 'xo') {
+      const gameId = generateGameId();
+      games[gameId] = {
+        id: gameId,
+        type: 'group', // نفس منطق اللعبة الثنائية
+        chatId: null,
+        board: newBoard(),
+        players: [],    // {id, name, symbol}
+        turn: null,
+        messageId: null,
+      };
 
-    if (/^\d+$/.test(q)) {
-      bet = parseInt(q, 10);
-    } else if ((m = q.match(/^(?:play|xo)\s+(\d+)$/))) {
-      bet = parseInt(m[1], 10);
-    }
+      const text =
+        '🎮 لعبة XO مباشرة هنا.\n' +
+        'اختر ❌ أو ⭕️ لبدء اللعبة.\n' +
+        'أول لاعب يختار رمز، وثاني لاعب يأخذ الرمز الآخر وتبدأ الجولة.';
 
-    if (bet < 0 || isNaN(bet)) bet = 0;
-    if (bet > 100000) bet = 100000;
-
-    if (!q || q === 'play' || q === 'xo' || /^\d+$/.test(q) || /^(?:play|xo)\s+\d+$/.test(q)) {
-      const baseId = generateGameId();
-      const fromName = query.from.first_name || query.from.username || 'لاعب';
-
-      const betLine = bet > 0
-        ? `💰 رهان: ${bet} نقطة من كل لاعب.\n`
-        : '';
-
-      const textX =
-        `🎮 تحدي XO\n` +
-        `❌ ${fromName} هو اللاعب الأول.\n` +
-        betLine +
-        `أرسل التحدي، وأول من يضغط "انضم كخصم" يصبح ⭕.\n`;
-
-      const textO =
-        `🎮 تحدي XO\n` +
-        `⭕ ${fromName} هو اللاعب الأول.\n` +
-        betLine +
-        `أرسل التحدي، وأول من يضغط "انضم كخصم" يصبح ❌.\n`;
-
-      const resultX = {
+      const result = {
         type: 'article',
-        id: `${baseId}:X:${bet}`,
-        title: bet > 0
-          ? `أنت ❌ — رهان ${bet}`
-          : 'بدء تحدي XO (أنت ❌)',
-        description: bet > 0
-          ? `تحدي برهان ${bet} نقطة`
-          : 'تحدي بدون رهان',
-        input_message_content: { message_text: textX },
+        id: gameId,
+        title: 'بدء لعبة XO هنا',
+        description: 'اختر ❌ أو ⭕️ ثم ابدأ اللعب مع صديقك.',
+        input_message_content: { message_text: text },
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🎮 انضم كخصم', callback_data: `join:${baseId}` }],
+            [
+              { text: '❌', callback_data: `pick:X:${gameId}` },
+              { text: '⭕️', callback_data: `pick:O:${gameId}` },
+            ],
           ],
         },
       };
 
-      const resultO = {
-        type: 'article',
-        id: `${baseId}:O:${bet}`,
-        title: bet > 0
-          ? `أنت ⭕ — رهان ${bet}`
-          : 'بدء تحدي XO (أنت ⭕)',
-        description: bet > 0
-          ? `تحدي برهان ${bet} نقطة`
-          : 'تحدي بدون رهان',
-        input_message_content: { message_text: textO },
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🎮 انضم كخصم', callback_data: `join:${baseId}` }],
-          ],
-        },
-      };
-
-      await bot.answerInlineQuery(query.id, [resultX, resultO], {
+      await bot.answerInlineQuery(query.id, [result], {
         cache_time: 0,
         is_personal: false,
       });
     } else {
       await bot.answerInlineQuery(query.id, [], {
-        switch_pm_text: 'اكتب play أو play 10 لبدء XO',
+        switch_pm_text: 'اكتب play لبدء لعبة XO',
         switch_pm_parameter: 'start',
+        cache_time: 5,
       });
     }
   } catch (err) {
-    console.error('inline_query error:', err.message);
-  }
-});
-
-// إنشاء اللعبة عند إرسال النتيجة فعلاً
-bot.on('chosen_inline_result', async (res) => {
-  try {
-    const { result_id, from, inline_message_id } = res;
-    if (!result_id || !inline_message_id) return;
-
-    const parts = result_id.split(':'); // baseId : X|O : bet
-    const gameId = parts[0];
-    const symbol = parts[1];
-    const bet = parseInt(parts[2] || '0', 10) || 0;
-
-    if (!gameId || (symbol !== 'X' && symbol !== 'O')) return;
-
-    const p1 = {
-      id: from.id,
-      name: from.first_name || from.username || 'لاعب',
-      username: from.username || null,
-    };
-    ensurePlayer(from);
-
-    games[gameId] = {
-      id: gameId,
-      inline_message_id,
-      status: 'waiting_opponent',
-      board: newBoard(),
-      turn: null,
-      pX: symbol === 'X' ? p1 : null,
-      pO: symbol === 'O' ? p1 : null,
-      p1,
-      p2: null,
-      icons: { X: '❌', O: '⭕', empty: '⬜' },
-      bet: bet > 0 ? bet : 0,
-      stakeActive: false,
-    };
-  } catch (err) {
-    console.error('chosen_inline_result error:', err.message);
+    console.error('خطأ inline_query:', err.message);
+    try {
+      await bot.answerInlineQuery(query.id, [], { cache_time: 1 });
+    } catch {}
   }
 });
 
 // ==================================================
-// 🤖 منطق البوت
+// 🎯 callback_query — الأزرار كلها
 // ==================================================
-
-function getAvailableMoves(board) {
-  const moves = [];
-  for (let i = 0; i < 3; i++) {
-    for (let j = 0; j < 3; j++) {
-      if (board[i][j] === ' ') moves.push([i, j]);
-    }
-  }
-  return moves;
-}
-
-function botSmartMove(board, botSymbol, humanSymbol) {
-  for (const [i, j] of getAvailableMoves(board)) {
-    board[i][j] = botSymbol;
-    if (checkWinner(board) === botSymbol) {
-      board[i][j] = ' ';
-      return [i, j];
-    }
-    board[i][j] = ' ';
-  }
-  for (const [i, j] of getAvailableMoves(board)) {
-    board[i][j] = humanSymbol;
-    if (checkWinner(board) === humanSymbol) {
-      board[i][j] = ' ';
-      return [i, j];
-    }
-    board[i][j] = ' ';
-  }
-  const moves = getAvailableMoves(board);
-  if (!moves.length) return null;
-  return moves[Math.floor(Math.random() * moves.length)];
-}
-
-function getBotMove(board, level) {
-  const moves = getAvailableMoves(board);
-  if (!moves.length) return null;
-  if (level === 'easy') {
-    return moves[Math.floor(Math.random() * moves.length)];
-  }
-  if (level === 'medium') {
-    return botSmartMove(board, 'O', 'X') || moves[Math.floor(Math.random() * moves.length)];
-  }
-  return botSmartMove(board, 'O', 'X') || moves[Math.floor(Math.random() * moves.length)];
-}
-
-// ==================================================
-// 🎯 Callback واحد
-// ==================================================
-
 bot.on('callback_query', async (query) => {
-  const { from, data, message, inline_message_id, id } = query;
-  if (!data) {
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
+  const { message, from, data } = query;
 
-  const user = ensurePlayer(from);
-
-  // ---------- MENUS ----------
-  if (data === 'menu:home') {
-    if (message) {
-      await bot.editMessageText(
-        '🏠 القائمة الرئيسية',
-        {
-          chat_id: message.chat.id,
-          message_id: message.message_id,
-          parse_mode: 'HTML',
-          reply_markup: mainMenuKeyboard(),
-        }
-      ).catch(() => {});
-    } else if (from.id) {
-      await sendMainMenu(from.id, user.name).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  if (data === 'menu:friend') {
-    if (message) {
-      const txt =
-        '👥 <b>اللعب مع صديق</b>\n\n' +
-        `1️⃣ اكتب: <code>@${botUsername} play</code> أو <code>@${botUsername} play 10</code>\n` +
-        '2️⃣ اختر بطاقة (أنت ❌) أو (أنت ⭕) من الشريط.\n' +
-        '3️⃣ أرسل البطاقة في القروب.\n' +
-        '4️⃣ يظهر زر "🎮 انضم كخصم" — أول من يضغطه يصبح اللاعب الثاني.\n' +
-        '5️⃣ بعدها تبدأ اللعبة من نفس الرسالة.';
-
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        parse_mode: 'HTML',
-        reply_markup: backHomeKeyboard(),
-      }).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  if (data === 'menu:bot') {
-    if (message) {
-      const txt =
-        '🤖 <b>تحدي البوت</b>\nاختر مستوى الصعوبة:';
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '🟢 سهل', callback_data: `botlvl:easy:${user.id}` },
-              { text: '🟡 متوسط', callback_data: `botlvl:medium:${user.id}` },
-              { text: '🔴 صعب', callback_data: `botlvl:hard:${user.id}` },
-            ],
-            [{ text: '🏠 رجوع', callback_data: 'menu:home' }],
-          ],
-        },
-      }).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  if (data === 'menu:bank') {
-    if (message) {
-      const txt =
-        '🏦 <b>البنك الذهبي</b>\n' +
-        `👤 ${escapeHTML(user.name)}\n\n` +
-        `🏅 نقاطك: <code>${user.points}</code>\n` +
-        `💰 عملاتك: <code>${user.coins}</code>`;
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        parse_mode: 'HTML',
-        reply_markup: backHomeKeyboard(),
-      }).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  if (data === 'menu:board') {
-    const list = Object.values(players).sort((a, b) => (b.points || 0) - (a.points || 0));
-    let txt;
-    if (!list.length) {
-      txt = 'لا توجد بيانات بعد.\nابدأ أول تحدي عبر @' + botUsername + ' play';
-    } else {
-      const top = list.slice(0, 20);
-      const lines = top.map(
-        (p, i) => `${i + 1}. ${p.name} — ${p.points} نقطة (${getTitle(p)})`
-      );
-      txt = '🌍 التصنيف العالمي:\n' + lines.join('\n');
-    }
-    if (message) {
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        reply_markup: backHomeKeyboard(),
-      }).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  if (data === 'menu:shop') {
-    if (message) {
-      await bot.editMessageText(
-        '🛍 المتجر',
-        {
-          chat_id: message.chat.id,
-          message_id: message.message_id,
-          parse_mode: 'HTML',
-          reply_markup: buildShopKeyboard(user),
-        }
-      ).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  if (data === 'menu:gift') {
-    if (message) {
-      const txt =
-        '🎁 <b>الهدايا</b>\n' +
-        'استخدم:\n' +
-        '<code>/gift @username 10</code>\n' +
-        'لإهداء عملات لصديقك.\n';
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        parse_mode: 'HTML',
-        reply_markup: backHomeKeyboard(),
-      }).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  if (data === 'menu:help') {
-    if (message) {
-      const txt =
-        'ℹ️ <b>مختصر XO Bot</b>\n' +
-        `• تحدي صديق: @${botUsername} play أو @${botUsername} play 10\n` +
-        '• اللعب ضد البوت: من القائمة أو /bot\n' +
-        '• المتجر: /shop — سكينات + ألقاب + Boosts\n' +
-        '• البنك: /bank — رصيدك\n' +
-        '• الهدايا: /gift\n';
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        parse_mode: 'HTML',
-        reply_markup: backHomeKeyboard(),
-      }).catch(() => {});
-    }
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  // ---------- SHOP ----------
-  if (data.startsWith('shop:')) {
-    const parts = data.split(':'); // shop:action:id
-    const action = parts[1];
-    const itemId = parts[2];
-    const chatId = message ? message.chat.id : null;
-
-    // سكينات
-    if (action === 'buySkin' || action === 'useSkin') {
-      const skin = SHOP_SKINS[itemId];
-      if (!skin) {
-        await bot.answerCallbackQuery(id, { text: '❌ سكين غير موجود.' }).catch(() => {});
+  try {
+    // ----------------------------------------------
+    // 🧩 اختيار الرمز (Inline)
+    // pick:X:gameId  أو pick:O:gameId
+    // ----------------------------------------------
+    if (data && data.startsWith('pick:')) {
+      const [, symbol, gameId] = data.split(':');
+      const game = games[gameId];
+      if (!game) {
+        await bot.answerCallbackQuery(query.id, { text: '❌ اللعبة غير موجودة.' });
         return;
       }
-      if (action === 'buySkin') {
-        if (user.ownedSkins.includes(itemId)) {
-          await bot.answerCallbackQuery(id, { text: '✅ تملكه بالفعل.' }).catch(() => {});
+
+      // لو أول مرة نحدد chat/message
+      if (!game.chatId) {
+        game.chatId = message.chat.id;
+        game.messageId = message.message_id;
+      }
+
+      const name = from.first_name || from.username || 'لاعب';
+      // تحقق: لاعب مختار نفس الرمز؟
+      if (game.players.find((p) => p.symbol === symbol)) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ هذا الرمز تم اختياره.' });
+        return;
+      }
+      // تحقق: نفس الشخص داخل مسبقاً؟
+      if (game.players.find((p) => p.id === from.id)) {
+        await bot.answerCallbackQuery(query.id, { text: '✅ أنت مشارك بالفعل.' });
+        return;
+      }
+
+      game.players.push({ id: from.id, name, symbol });
+      ensurePlayer(from);
+      await bot.answerCallbackQuery(query.id, { text: `✅ اخترت ${symbol}` });
+
+      if (game.players.length === 1) {
+        const remainingSymbol = symbol === 'X' ? 'O' : 'X';
+        await bot.editMessageText(
+          `✅ ${name} اختار ${symbol}\n🕓 بانتظار لاعب آخر يختار ${remainingSymbol}.`,
+          {
+            chat_id: game.chatId,
+            message_id: game.messageId,
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: remainingSymbol === 'X' ? '❌' : '⭕️', callback_data: `pick:${remainingSymbol}:${gameId}` }],
+              ],
+            },
+          }
+        );
+      }
+
+      if (game.players.length === 2) {
+        // بدأ اللعب
+        game.turn = 'X'; // X يبدأ دائماً
+        const px = game.players.find((p) => p.symbol === 'X');
+        const po = game.players.find((p) => p.symbol === 'O');
+
+        if (!px || !po) {
+          await bot.editMessageText('⚠️ خطأ في تعيين اللاعبين، تم إلغاء اللعبة.', {
+            chat_id: game.chatId,
+            message_id: game.messageId,
+          });
+          delete games[gameId];
           return;
         }
-        if (user.coins < skin.price) {
-          await bot.answerCallbackQuery(id, { text: '💰 رصيدك لا يكفي.', show_alert: true }).catch(() => {});
-          return;
-        }
-        user.coins -= skin.price;
-        user.ownedSkins.push(itemId);
-        savePlayers();
-        if (chatId) {
-          await bot.editMessageReplyMarkup(buildShopKeyboard(user), {
-            chat_id: chatId,
-            message_id: message.message_id,
-          }).catch(() => {});
-        }
-        await bot.answerCallbackQuery(id, { text: `✅ تم شراء ${skin.name}.` }).catch(() => {});
-        return;
-      }
-      if (action === 'useSkin') {
-        if (!user.ownedSkins.includes(itemId)) {
-          await bot.answerCallbackQuery(id, { text: '❌ لم تشتر هذا السكين.' }).catch(() => {});
-          return;
-        }
-        user.activeSkin = itemId;
-        savePlayers();
-        if (chatId) {
-          await bot.editMessageReplyMarkup(buildShopKeyboard(user), {
-            chat_id: chatId,
-            message_id: message.message_id,
-          }).catch(() => {});
-        }
-        await bot.answerCallbackQuery(id, { text: `🎨 تم تفعيل ${skin.name}.` }).catch(() => {});
-        return;
-      }
-    }
 
-    // شراء عناصر إضافية
-    if (action === 'buyExtra') {
-      const item = SHOP_EXTRA.find((x) => x.id === itemId);
-      if (!item) {
-        await bot.answerCallbackQuery(id, { text: '❌ عنصر غير موجود.' }).catch(() => {});
-        return;
-      }
-      if (user.coins < item.price) {
-        await bot.answerCallbackQuery(id, { text: '💰 رصيدك لا يكفي.', show_alert: true }).catch(() => {});
-        return;
-      }
-      user.coins -= item.price;
-
-      if (item.type === 'title') {
-        if (!user.ownedTitles.includes(item.name)) user.ownedTitles.push(item.name);
-        user.activeTitle = item.name;
-      } else if (item.type === 'taunt') {
-        if (!user.ownedTaunts.includes(item.name)) user.ownedTaunts.push(item.name);
-        user.activeTaunt = item.name;
-      } else if (item.type === 'boost_winX2') {
-        user.boosts.winX2 = (user.boosts.winX2 || 0) + (item.amount || 1);
+        const text =
+          `🎮 لعبة XO بدأت!\n` +
+          `❌ ${px.name}\n` +
+          `⭕️ ${po.name}\n\n` +
+          `🎯 دور ${px.name}`;
+        await bot.editMessageText(text, {
+          chat_id: game.chatId,
+          message_id: game.messageId,
+          ...renderBoard(game.board),
+        });
       }
 
-      savePlayers();
-      if (chatId) {
-        await bot.editMessageReplyMarkup(buildShopKeyboard(user), {
-          chat_id: chatId,
-          message_id: message.message_id,
-        }).catch(() => {});
-      }
-
-      await bot.answerCallbackQuery(id, {
-        text: `✅ تم شراء ${item.name}.`,
-      }).catch(() => {});
       return;
     }
 
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
+    // ----------------------------------------------
+    // 🏆 الانضمام إلى بطولة joinT:
+    // ----------------------------------------------
+    if (data && data.startsWith('joinT:')) {
+      const tId = data.split(':')[1];
+      const t = tournaments[tId];
+      if (!t) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ لا توجد بطولة.' });
+        return;
+      }
+      if (t.participants.find((p) => p.id === from.id)) {
+        await bot.answerCallbackQuery(query.id, { text: '✅ أنت منضم مسبقاً.' });
+        return;
+      }
+      if (t.participants.length >= 6) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ البطولة مكتملة.' });
+        return;
+      }
+      t.participants.push({
+        id: from.id,
+        name: from.first_name || from.username || 'مستخدم',
+      });
+      ensurePlayer(from);
+      await bot.answerCallbackQuery(query.id, { text: '✅ تم الانضمام.' });
 
-  // ---------- JOIN PVP ----------
-  if (data.startsWith('join:')) {
-    const gameId = data.split(':')[1];
+      try {
+        await bot.editMessageText(
+          `👥 المشاركون: ${t.participants.map((p) => p.name).join(' • ')}\n(${t.participants.length}/6)`,
+          {
+            chat_id: t.chatId,
+            message_id: t.messageId,
+            reply_markup: {
+              inline_keyboard: [[{ text: '🎮 انضمام إلى البطولة', callback_data: 'joinT:' + tId }]],
+            },
+          }
+        );
+      } catch {}
+      return;
+    }
+
+    // ----------------------------------------------
+    // 👥 join/join6 للألعاب العادية في القروبات
+    // ----------------------------------------------
+    if (data && (data.startsWith('join:') || data.startsWith('join6:'))) {
+      const partsJoin = data.split(':');
+      const joinCmd = partsJoin[0];
+      const gameId = partsJoin[1];
+      const game = games[gameId];
+      if (!game) {
+        await bot.answerCallbackQuery(query.id, {
+          text: '⚠️ لا توجد لعبة متاحة هنا.',
+        });
+        return;
+      }
+
+      // لو جاءت من inline ولم نضبط بعد
+      if (!game.chatId) {
+        game.chatId = message.chat.id;
+        game.messageId = message.message_id;
+      }
+
+      if (joinCmd === 'join' && game.type !== 'group') {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ هذه ليست لعبة ثنائية.' });
+        return;
+      }
+      if (joinCmd === 'join6' && game.type !== 'group4') {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ هذه ليست لعبة 2 ضد 2.' });
+        return;
+      }
+
+      if (game.players.find((p) => p.id === from.id)) {
+        await bot.answerCallbackQuery(query.id, { text: '✅ أنت منضم مسبقاً.' });
+        return;
+      }
+
+      let maxPlayers = game.type === 'group' ? 2 : 4;
+      if (game.players.length >= maxPlayers) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ اللعبة مكتملة.' });
+        return;
+      }
+
+      game.players.push({
+        id: from.id,
+        name: from.first_name || from.username || 'مستخدم',
+      });
+      ensurePlayer(from);
+      await bot.answerCallbackQuery(query.id, { text: '✅ تم الانضمام.' });
+
+      // لعبة ثنائية
+      if (game.type === 'group') {
+        if (game.players.length === 2) {
+          if (game.timer) {
+            clearTimeout(game.timer);
+            game.timer = null;
+          }
+          game.turn = 'X';
+          game.players[0].symbol = 'X';
+          game.players[1].symbol = 'O';
+          try {
+            await bot.editMessageText(
+              `🎮 ${game.players[0].name} vs ${game.players[1].name}\n🎯 دور ${game.players[0].name} (❌)`,
+              {
+                chat_id: game.chatId,
+                message_id: game.messageId,
+                ...renderBoard(game.board),
+              }
+            );
+          } catch {}
+        } else {
+          try {
+            await bot.editMessageText(
+              `👤 ${game.players.map((p) => p.name).join(' • ')}\n🕓 بانتظار لاعب آخر...`,
+              {
+                chat_id: game.chatId,
+                message_id: game.messageId,
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: '🎮 انضمام إلى اللعبة', callback_data: 'join:' + gameId }],
+                  ],
+                },
+              }
+            );
+          } catch {}
+        }
+      }
+
+      // لعبة 2 ضد 2
+      if (game.type === 'group4') {
+        const required = 4;
+        if (game.players.length === required) {
+          // تقسيم الفرق عشوائي
+          const shuffled = [...game.players].sort(() => Math.random() - 0.5);
+          game.teams = {
+            X: shuffled.slice(0, 2),
+            O: shuffled.slice(2, 4),
+          };
+          game.turn = 'X';
+          game.board = newBoard();
+          const teamXNames = game.teams.X.map((u) => u.name).join('، ');
+          const teamONames = game.teams.O.map((u) => u.name).join('، ');
+          const header =
+            `🎮 2 ضد 2\n` +
+            `فريق X: ${teamXNames}\n` +
+            `فريق O: ${teamONames}\n` +
+            `🎯 دور فريق X`;
+
+          try {
+            await bot.editMessageText(header, {
+              chat_id: game.chatId,
+              message_id: game.messageId,
+              ...renderBoard(game.board),
+            });
+          } catch {}
+        } else {
+          try {
+            await bot.editMessageText(
+              `👤 ${game.players.map((p) => p.name).join(' • ')}\n(${game.players.length}/4) بانتظار لاعبين...`,
+              {
+                chat_id: game.chatId,
+                message_id: game.messageId,
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: '🎮 انضمام إلى التحدي', callback_data: 'join6:' + gameId }],
+                  ],
+                },
+              }
+            );
+          } catch {}
+        }
+      }
+
+      return;
+    }
+
+    // ----------------------------------------------
+    // 👇 هنا تعامل مع ضغط مربعات XO (i,j)
+    // ----------------------------------------------
+    const parts = (data || '').split(',');
+    if (parts.length !== 2) {
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ اختيار غير صالح.' });
+      return;
+    }
+    const i = Number(parts[0]);
+    const j = Number(parts[1]);
+    if (Number.isNaN(i) || Number.isNaN(j)) {
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ خطأ في البيانات.' });
+      return;
+    }
+
+    // إيجاد اللعبة
+    let gameId =
+      Object.keys(games).find((id) => {
+        const g = games[id];
+        return (
+          g.type === 'private' &&
+          g.msgs &&
+          (g.msgs[g.p1.id] === message.message_id ||
+            g.msgs[g.p2.id] === message.message_id)
+        );
+      }) || null;
+
+    if (!gameId) {
+      gameId = Object.keys(games).find((id) => {
+        const g = games[id];
+        return (
+          (g.type === 'group' || g.type === 'group4') &&
+          g.chatId === message.chat.id &&
+          g.messageId === message.message_id
+        );
+      }) || null;
+    }
+
+    if (!gameId) {
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ لا توجد لعبة لهذه الرسالة.' });
+      return;
+    }
+
     const game = games[gameId];
-
-    if (!game || game.status !== 'waiting_opponent') {
-      await bot.answerCallbackQuery(id, {
-        text: '❌ هذا التحدي غير متاح الآن.',
-      }).catch(() => {});
-      return;
-    }
-
-    if (from.id === game.p1.id) {
-      await bot.answerCallbackQuery(id, {
-        text: '⚠️ لا يمكنك تحدي نفسك.',
-      }).catch(() => {});
-      return;
-    }
-
-    if (game.p2) {
-      await bot.answerCallbackQuery(id, {
-        text: '⚠️ تم اختيار الخصم بالفعل.',
-      }).catch(() => {});
-      return;
-    }
-
-    const bet = game.bet || 0;
-
-    const p1 = ensurePlayer({ id: game.p1.id, first_name: game.p1.name, username: game.p1.username });
-    const p2 = ensurePlayer(from);
-
-    if (bet > 0) {
-      if (p1.points < bet) {
-        await bot.answerCallbackQuery(id, {
-          text: '❌ صاحب التحدي لا يملك نقاط كافية.',
-          show_alert: true,
-        }).catch(() => {});
-        return;
-      }
-      if (p2.points < bet) {
-        await bot.answerCallbackQuery(id, {
-          text: 'رصيدك لا يكفي، العب مباريات لزيادة نقاطك.',
-          show_alert: true,
-        }).catch(() => {});
-        return;
-      }
-
-      p1.points -= bet;
-      p2.points -= bet;
-      if (p1.points < 0) p1.points = 0;
-      if (p2.points < 0) p2.points = 0;
-      savePlayers();
-      game.stakeActive = true;
-    }
-
-    const p2Data = {
-      id: from.id,
-      name: from.first_name || from.username || 'لاعب',
-      username: from.username || null,
-    };
-    game.p2 = p2Data;
-
-    if (!game.pX && game.pO) game.pX = p2Data;
-    if (!game.pO && game.pX) game.pO = p2Data;
-
-    game.status = 'playing';
-    game.turn = 'X';
-
-    buildIconsForGame(game);
-
-    const betLine =
-      bet > 0
-        ? `💰 رهان: ${bet} نقطة لكل لاعب (المجموع ${bet * 2}).\n`
-        : '';
-
-    const header =
-      `🎮 لعبة XO بدأت!\n` +
-      `❌ ${game.pX.name}\n` +
-      `⭕ ${game.pO.name}\n` +
-      betLine +
-      `🎯 دور ${game.turn === 'X' ? game.pX.name : game.pO.name}`;
-
-    await bot.editMessageText(header, {
-      inline_message_id: game.inline_message_id,
-      reply_markup: renderBoardInline(game),
-    }).catch(() => {});
-
-    await bot.answerCallbackQuery(id, {
-      text: '✅ تم انضمامك كتحدي، بالتوفيق!',
-    }).catch(() => {});
-    return;
-  }
-
-  // ---------- حركات PVP ----------
-  if (data.startsWith('mv:')) {
-    const [, gameId, si, sj] = data.split(':');
-    const i = Number(si);
-    const j = Number(sj);
-    const game = games[gameId];
-
-    if (!game || game.status !== 'playing') {
-      await bot.answerCallbackQuery(id, {
-        text: '❌ لا توجد لعبة نشطة.',
-      }).catch(() => {});
-      return;
-    }
-
-    if (inline_message_id && inline_message_id !== game.inline_message_id) {
-      await bot.answerCallbackQuery(id).catch(() => {});
-      return;
-    }
-
-    if (!game.board[i] || game.board[i][j] === undefined) {
-      await bot.answerCallbackQuery(id, { text: '⚠️ حركة غير صالحة.' }).catch(() => {});
+    if (!game.board || !game.board[i] || game.board[i][j] === undefined) {
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ خلية غير صالحة.' });
       return;
     }
     if (game.board[i][j] !== ' ') {
-      await bot.answerCallbackQuery(id, { text: '❗ هذه الخانة مشغولة.' }).catch(() => {});
+      await bot.answerCallbackQuery(query.id, { text: '❗ هذه الخانة مشغولة.' });
       return;
     }
 
-    const currentId = game.turn === 'X' ? game.pX.id : game.pO.id;
-    if (from.id !== currentId) {
-      await bot.answerCallbackQuery(id, { text: '⚠️ ليس دورك الآن.' }).catch(() => {});
+    // تحديد الرمز حسب نوع اللعبة
+    let symbol = null;
+
+    if (game.type === 'private') {
+      if (from.id === game.p1.id) symbol = 'X';
+      else if (from.id === game.p2.id) symbol = 'O';
+      else {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ لست ضمن هذه اللعبة.' });
+        return;
+      }
+      if (symbol !== game.turn) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دورك الآن.' });
+        return;
+      }
+    } else if (game.type === 'group4') {
+      if (!game.teams || !game.teams.X || !game.teams.O) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ لم تُقسم الفرق بعد.' });
+        return;
+      }
+      if (game.teams.X.some((p) => p.id === from.id)) symbol = 'X';
+      else if (game.teams.O.some((p) => p.id === from.id)) symbol = 'O';
+      else {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ لست في هذه اللعبة.' });
+        return;
+      }
+      if (symbol !== game.turn) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دور فريقك.' });
+        return;
+      }
+    } else if (game.type === 'group') {
+      // ثنائية (قروب أو inline)
+      const p = game.players.find((pl) => pl.id === from.id);
+      if (!p) {
+        await bot.answerCallbackQuery(query.id, {
+          text: '⚠️ انضم للعبة أولاً.',
+        });
+        return;
+      }
+
+      if (p.symbol) {
+        symbol = p.symbol;
+      } else {
+        // fallback قديم لو بدون symbol
+        const idx = game.players.findIndex((pl) => pl.id === from.id);
+        symbol = idx === 0 ? 'X' : 'O';
+      }
+
+      if (symbol !== game.turn) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دورك الآن.' });
+        return;
+      }
+    } else {
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ نوع لعبة غير مدعوم.' });
       return;
     }
 
-    game.board[i][j] = game.turn;
+    // تنفيذ الحركة
+    game.board[i][j] = symbol;
+    game.turn = symbol === 'X' ? 'O' : 'X';
 
     const winnerSymbol = checkWinner(game.board);
-    const full = game.board.flat().every((c) => c !== ' ');
+    let resultText = '';
 
-    if (winnerSymbol || full) {
-      game.status = 'finished';
-      let txt;
-
-      if (winnerSymbol) {
-        const winPlayer = winnerSymbol === 'X' ? game.pX : game.pO;
-        awardPointsAndBet(game, winnerSymbol);
-        txt =
-          `🏆 انتهت المباراة!\n` +
-          `الفائز: ${winPlayer.name} (${winnerSymbol === 'X' ? '❌' : '⭕'})`;
+    if (winnerSymbol) {
+      // فوز
+      if (game.type === 'private') {
+        const winnerName = winnerSymbol === 'X' ? game.p1.name : game.p2.name;
+        resultText = `🏆 الفائز: ${winnerName}!`;
+        awardPointsPrivateGame(gameId, winnerSymbol);
+      } else if (game.type === 'group4') {
+        const teamXNames = game.teams.X.map((u) => u.name).join('، ');
+        const teamONames = game.teams.O.map((u) => u.name).join('، ');
+        resultText =
+          `🏆 الفريق الفائز: ` +
+          (winnerSymbol === 'X'
+            ? `فريق X (${teamXNames})`
+            : `فريق O (${teamONames})`);
+        awardPointsGroup6Game(game, winnerSymbol);
       } else {
-        awardPointsAndBet(game, null);
-        txt = '🤝 انتهت المباراة بالتعادل!';
+        const px = game.players.find((p) => p.symbol === 'X') || game.players[0];
+        const po = game.players.find((p) => p.symbol === 'O') || game.players[1];
+        const winnerName = winnerSymbol === 'X' ? px.name : po.name;
+        resultText = `🏆 الفائز: ${winnerName}!`;
+        awardPointsTwoPlayerGame(game, winnerSymbol);
       }
 
-      await bot.editMessageText(txt, {
-        inline_message_id: game.inline_message_id,
-        reply_markup: renderBoardInline(game),
-      }).catch(() => {});
-
+      // تحديث الرسالة
+      await editGameMessage(game, resultText);
       delete games[gameId];
-      await bot.answerCallbackQuery(id).catch(() => {});
-      return;
-    }
-
-    game.turn = game.turn === 'X' ? 'O' : 'X';
-    const turnName = game.turn === 'X' ? game.pX.name : game.pO.name;
-
-    const header =
-      `🎮 لعبة XO\n` +
-      `❌ ${game.pX.name} — ⭕ ${game.pO.name}\n` +
-      `🎯 دور ${turnName}`;
-
-    await bot.editMessageText(header, {
-      inline_message_id: game.inline_message_id,
-      reply_markup: renderBoardInline(game),
-    }).catch(() => {});
-
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  // ---------- botlvl ----------
-  if (data.startsWith('botlvl:')) {
-    const [, level, userId] = data.split(':');
-    if (String(from.id) !== String(userId)) {
-      await bot.answerCallbackQuery(id, {
-        text: '⚠️ هذا الاختيار لصاحب الطلب فقط.',
-      }).catch(() => {});
-      return;
-    }
-    if (!message) {
-      await bot.answerCallbackQuery(id).catch(() => {});
-      return;
-    }
-
-    const gameId = 'b_' + generateGameId();
-    const board = newBoard();
-
-    botGames[gameId] = {
-      id: gameId,
-      chatId: message.chat.id,
-      messageId: message.message_id,
-      board,
-      turn: 'X',
-      userId: from.id,
-      level,
-    };
-
-    const p = ensurePlayer(from);
-    const skin = SHOP_SKINS[p.activeSkin] || SHOP_SKINS.default;
-
-    const txt =
-      `🤖 تحدي البوت (${level})\n` +
-      `أنت ${skin.icons.X || '❌'} ، البوت ⭕\n` +
-      'اضغط على خانة للبدء.';
-
-    const reply_markup = {
-      inline_keyboard: board.map((row, i) =>
-        row.map((cell, j) => ({
-          text: cell === ' ' ? (skin.icons.empty || '⬜') : cell,
-          callback_data: `botmv:${gameId}:${i}:${j}`,
-        }))
-      ),
-    };
-
-    await bot.editMessageText(txt, {
-      chat_id: message.chat.id,
-      message_id: message.message_id,
-      reply_markup,
-      parse_mode: 'HTML',
-    }).catch(() => {});
-
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
-  }
-
-  // ---------- botmv ----------
-  if (data.startsWith('botmv:')) {
-    const [, gameId, si, sj] = data.split(':');
-    const i = Number(si);
-    const j = Number(sj);
-    const game = botGames[gameId];
-
-    if (!game) {
-      await bot.answerCallbackQuery(id, {
-        text: '❌ لا توجد لعبة.',
-      }).catch(() => {});
-      return;
-    }
-    if (!message || message.chat.id !== game.chatId) {
-      await bot.answerCallbackQuery(id).catch(() => {});
-      return;
-    }
-    if (from.id !== game.userId) {
-      await bot.answerCallbackQuery(id, {
-        text: '⚠️ هذه المباراة ليست لك.',
-      }).catch(() => {});
-      return;
-    }
-    if (game.board[i][j] !== ' ' || game.turn !== 'X') {
-      await bot.answerCallbackQuery(id, {
-        text: '⚠️ حركة غير صالحة.',
-      }).catch(() => {});
-      return;
-    }
-
-    const p = ensurePlayer(from);
-    const skin = SHOP_SKINS[p.activeSkin] || SHOP_SKINS.default;
-
-    function buildKeyboard() {
-      return {
-        inline_keyboard: game.board.map((row, ii) =>
-          row.map((cell, jj) => ({
-            text:
-              cell === ' '
-                ? (skin.icons.empty || '⬜')
-                : cell === 'X'
-                ? (skin.icons.X || '❌')
-                : '⭕',
-            callback_data: `botmv:${gameId}:${ii}:${jj}`,
-          }))
-        ),
-      };
-    }
-
-    // حركة اللاعب
-    game.board[i][j] = 'X';
-
-    let winner = checkWinner(game.board);
-    let full = game.board.flat().every((c) => c !== ' ');
-
-    if (winner || full) {
-      let txt;
-      if (winner === 'X') {
-        p.points += 5;
-        p.coins += 5;
-        p.wins++;
-        txt = '🏆 فزت على البوت! (+5 نقاط)';
-      } else if (winner === 'O') {
-        p.losses++;
-        txt = '😅 البوت فاز عليك!';
+    } else if (game.board.flat().every((c) => c !== ' ')) {
+      // تعادل
+      resultText = '🤝 انتهت اللعبة بالتعادل!';
+      if (game.type === 'private') {
+        awardPointsPrivateGame(gameId, null);
+      } else if (game.type === 'group4') {
+        awardPointsGroup6Game(game, null);
       } else {
-        p.draws++;
-        p.coins += 1;
-        txt = '🤝 تعادل مع البوت (+1 عملة).';
+        awardPointsTwoPlayerGame(game, null);
       }
-      savePlayers();
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        reply_markup: buildKeyboard(),
-      }).catch(() => {});
-      delete botGames[gameId];
-      await bot.answerCallbackQuery(id).catch(() => {});
-      return;
-    }
-
-    // حركة البوت
-    game.turn = 'O';
-    const botMove = getBotMove(game.board, game.level);
-    if (botMove) {
-      const [bi, bj] = botMove;
-      if (game.board[bi] && game.board[bi][bj] === ' ') {
-        game.board[bi][bj] = 'O';
-      }
-    }
-
-    winner = checkWinner(game.board);
-    full = game.board.flat().every((c) => c !== ' ');
-
-    if (winner || full) {
-      let txt;
-      if (winner === 'X') {
-        p.points += 5;
-        p.coins += 5;
-        p.wins++;
-        txt = '🏆 فزت على البوت! (+5 نقاط)';
-      } else if (winner === 'O') {
-        p.losses++;
-        txt = '😅 البوت فاز عليك!';
+      await editGameMessage(game, resultText);
+      delete games[gameId];
+    } else {
+      // مستمرة
+      if (game.type === 'private') {
+        const nextName = game.turn === 'X' ? game.p1.name : game.p2.name;
+        resultText = `🎯 دور ${nextName}`;
+      } else if (game.type === 'group4') {
+        resultText = `🎯 دور فريق ${game.turn}`;
       } else {
-        p.draws++;
-        p.coins += 1;
-        txt = '🤝 تعادل مع البوت (+1 عملة).';
+        const px = game.players.find((p) => p.symbol === 'X') || game.players[0];
+        const po = game.players.find((p) => p.symbol === 'O') || game.players[1];
+        const nextName = game.turn === 'X' ? px.name : po.name;
+        resultText = `🎯 دور ${nextName}`;
       }
-      savePlayers();
-      await bot.editMessageText(txt, {
-        chat_id: message.chat.id,
-        message_id: message.message_id,
-        reply_markup: buildKeyboard(),
-      }).catch(() => {});
-      delete botGames[gameId];
-      await bot.answerCallbackQuery(id).catch(() => {});
-      return;
+      await editGameMessage(game, resultText);
     }
 
-    // استمرار
-    game.turn = 'X';
-    const txt =
-      `🤖 تحدي البوت (${game.level})\n` +
-      `أنت ${skin.icons.X || '❌'} ، البوت ⭕\n` +
-      '🎯 دورك الآن.';
-
-    await bot.editMessageText(txt, {
-      chat_id: message.chat.id,
-      message_id: message.message_id,
-      reply_markup: buildKeyboard(),
-      parse_mode: 'HTML',
-    }).catch(() => {});
-    await bot.answerCallbackQuery(id).catch(() => {});
-    return;
+    await bot.answerCallbackQuery(query.id);
+  } catch (err) {
+    console.error('callback_query error:', err.message);
+    try {
+      await bot.answerCallbackQuery(query.id, { text: '⚠️ حدث خطأ.' });
+    } catch {}
   }
-
-  // أي شيء آخر
-  await bot.answerCallbackQuery(id, { text: '⚠️ إجراء غير معروف.' }).catch(() => {});
 });
 
-console.log('🚀 XO Inline Bot يعمل بـ @' + (botUsername || 'Bot') + ' play');
+// ==================================================
+// 📝 دالة موحّدة لتحديث رسالة اللعبة
+// ==================================================
+async function editGameMessage(game, text) {
+  try {
+    if (game.type === 'private') {
+      await bot.editMessageText(text, {
+        chat_id: game.p1.id,
+        message_id: game.msgs[game.p1.id],
+        ...renderBoard(game.board),
+      });
+      await bot.editMessageText(text, {
+        chat_id: game.p2.id,
+        message_id: game.msgs[game.p2.id],
+        ...renderBoard(game.board),
+      });
+    } else {
+      await bot.editMessageText(text, {
+        chat_id: game.chatId,
+        message_id: game.messageId,
+        ...renderBoard(game.board),
+      });
+    }
+  } catch {
+    // نتجاهل أخطاء التحرير
+  }
+}
+
+console.log('🚀 XO Bot v10 قيد التشغيل...');
