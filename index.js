@@ -225,6 +225,32 @@ const botGames = {};
 const inlineToGameId = {};
 
 /** Resolve a game by explicit gameId (preferred) or by inline_message_id fallback */
+
+// --- simple persistence to survive restarts ---
+const GAMES_FILE = 'games.json';
+
+function loadGamesFromDisk() {
+  try {
+    if (!fs.existsSync(GAMES_FILE)) fs.writeFileSync(GAMES_FILE, JSON.stringify({ games: {}, inlineToGameId: {} }, null, 2), 'utf8');
+    const raw = fs.readFileSync(GAMES_FILE, 'utf8');
+    const parsed = raw && raw.trim() ? JSON.parse(raw) : { games: {}, inlineToGameId: {} };
+    Object.assign(games, parsed.games || {});
+    Object.assign(inlineToGameId, parsed.inlineToGameId || {});
+    console.log('💾 استعادة', Object.keys(games).length, 'لعبة من القرص.');
+  } catch (e) {
+    console.error('⚠️ تعذر قراءة ملف الألعاب:', e.message);
+  }
+}
+
+function saveGamesToDisk() {
+  try {
+    const data = { games, inlineToGameId };
+    fs.writeFileSync(GAMES_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error('⚠️ تعذر حفظ ملف الألعاب:', e.message);
+  }
+}
+
 function resolveGame(gameId, inlineId) {
   let g = gameId ? games[gameId] : null;
   if (!g && inlineId && inlineToGameId[inlineId]) {
@@ -233,6 +259,8 @@ function resolveGame(gameId, inlineId) {
   }
   return g;
 }
+
+loadGamesFromDisk();
 
 
 // بناء سكينات اللعبة
@@ -1054,7 +1082,7 @@ bot.on('callback_query', async (query) => {
 
     if (!game || game.status !== 'waiting_opponent') {
       await bot.answerCallbackQuery(id, {
-        text: '❌ هذا التحدي غير متاح الآن.\n💡 تأكد أن الرسالة inline من نفس البوت وأن البوت يعمل بنسخة واحدة فقط.',
+        text: '❌ هذا التحدي غير متاح الآن.\n💡 تأكد أن بطاقة التحدي أُرسلت عبر @اسم_البوت نفسه داخل المجموعة، وأن البوت يعمل بنسخة واحدة فقط (ليس محليًا وRender معًا).',
       }).catch(() => {});
       return;
     }
@@ -1134,6 +1162,7 @@ bot.on('callback_query', async (query) => {
       reply_markup: renderBoardInline(game),
     }).catch(() => {});
 
+    saveGamesToDisk();
     await bot.answerCallbackQuery(id, {
       text: '✅ تم انضمامك كتحدي، بالتوفيق!',
     }).catch(() => {});
@@ -1200,6 +1229,8 @@ bot.on('callback_query', async (query) => {
       }).catch(() => {});
 
       delete games[gameId];
+      if (inline_message_id && inlineToGameId[inline_message_id]) delete inlineToGameId[inline_message_id];
+      saveGamesToDisk();
       await bot.answerCallbackQuery(id).catch(() => {});
       return;
     }
@@ -1217,6 +1248,7 @@ bot.on('callback_query', async (query) => {
       reply_markup: renderBoardInline(game),
     }).catch(() => {});
 
+    saveGamesToDisk();
     await bot.answerCallbackQuery(id).catch(() => {});
     return;
   }
