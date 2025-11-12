@@ -1039,8 +1039,12 @@ bot.on('callback_query', async (query) => {
     const game = games[gameId];
 
     if (!game || game.status !== 'waiting_opponent') {
+      const reason = !game
+        ? '❌ التحدي غير موجود.'
+        : '❌ التحدي لم يعد متاحًا (ربما انتهى أو بدأ بالفعل).';
       await bot.answerCallbackQuery(id, {
-        text: '❌ هذا التحدي غير متاح الآن.',
+        text: reason,
+        show_alert: true,
       }).catch(() => {});
       return;
     }
@@ -1054,7 +1058,8 @@ bot.on('callback_query', async (query) => {
 
     if (game.p2) {
       await bot.answerCallbackQuery(id, {
-        text: '⚠️ تم اختيار الخصم بالفعل.',
+        text: '⚠️ تم اختيار الخصم بالفعل. لا يمكنك الانضمام.',
+        show_alert: true,
       }).catch(() => {});
       return;
     }
