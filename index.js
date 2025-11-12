@@ -221,6 +221,19 @@ const games = {};
 // vs Bot
 // botGame = { id, chatId, messageId, board, turn, userId, level }
 const botGames = {};
+// --- robust inline mapping to avoid "challenge unavailable" when process restarts or multiple instances ---
+const inlineToGameId = {};
+
+/** Resolve a game by explicit gameId (preferred) or by inline_message_id fallback */
+function resolveGame(gameId, inlineId) {
+  let g = gameId ? games[gameId] : null;
+  if (!g && inlineId && inlineToGameId[inlineId]) {
+    const altId = inlineToGameId[inlineId];
+    g = games[altId] || null;
+  }
+  return g;
+}
+
 
 // بناء سكينات اللعبة
 function buildIconsForGame(game) {
@@ -700,6 +713,7 @@ bot.on('chosen_inline_result', async (res) => {
     };
     ensurePlayer(from);
 
+    inlineToGameId[inline_message_id] = gameId;
     games[gameId] = {
       id: gameId,
       inline_message_id,
@@ -1036,15 +1050,11 @@ bot.on('callback_query', async (query) => {
   // ---------- JOIN PVP ----------
   if (data.startsWith('join:')) {
     const gameId = data.split(':')[1];
-    const game = games[gameId];
+    const game = resolveGame(gameId, inline_message_id);
 
     if (!game || game.status !== 'waiting_opponent') {
-      const reason = !game
-        ? '❌ التحدي غير موجود.'
-        : '❌ التحدي لم يعد متاحًا (ربما انتهى أو بدأ بالفعل).';
       await bot.answerCallbackQuery(id, {
-        text: reason,
-        show_alert: true,
+        text: '❌ هذا التحدي غير متاح الآن.\n💡 تأكد أن الرسالة inline من نفس البوت وأن البوت يعمل بنسخة واحدة فقط.',
       }).catch(() => {});
       return;
     }
@@ -1058,8 +1068,7 @@ bot.on('callback_query', async (query) => {
 
     if (game.p2) {
       await bot.answerCallbackQuery(id, {
-        text: '⚠️ تم اختيار الخصم بالفعل. لا يمكنك الانضمام.',
-        show_alert: true,
+        text: '⚠️ تم اختيار الخصم بالفعل.',
       }).catch(() => {});
       return;
     }
@@ -1136,7 +1145,7 @@ bot.on('callback_query', async (query) => {
     const [, gameId, si, sj] = data.split(':');
     const i = Number(si);
     const j = Number(sj);
-    const game = games[gameId];
+    const game = resolveGame(gameId, inline_message_id);
 
     if (!game || game.status !== 'playing') {
       await bot.answerCallbackQuery(id, {
