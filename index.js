@@ -432,8 +432,6 @@ bot.on('inline_query', async (query) => {
 });
 
 // ======================= chosen_inline_result =======================
-// هنا ننشئ اللعبة فعلياً حتى لا يظهر "التحدي غير متاح"
-
 bot.on('chosen_inline_result', async (result) => {
   try {
     const { from, result_id, inline_message_id } = result;
@@ -445,7 +443,7 @@ bot.on('chosen_inline_result', async (result) => {
     // احفظ اللعبة في الذاكرة
     games[gameId] = {
       id: gameId,
-      host: { id: from.id, name: from.first_name || from.username || 'لاعب' },
+      host: { id: uid(from.id), name: from.first_name || from.username || 'لاعب' },
       hostSymbol,
       opp: null,
       oppSymbol: null,
@@ -459,7 +457,7 @@ bot.on('chosen_inline_result', async (result) => {
     const joinText = hostSymbol === 'X' ? '🕹 انضم كخصم ⭕' : '🕹 انضم كخصم ❌';
     await bot.editMessageReplyMarkup({
       inline_keyboard: [[
-        { text: joinText, callback_data: `join:${gameId}:${from.id}:${hostSymbol}` }
+        { text: joinText, callback_data: `join:${gameId}:${uid(from.id)}:${hostSymbol}` }
       ]]
     }, { inline_message_id });
   } catch (err) {
@@ -590,7 +588,7 @@ bot.on('callback_query', async (query) => {
       if (!game) {
         game = {
           id: gameId,
-          host: { id: hostId || 0, name: 'المضيف' },
+          host: { id: uid(hostId || 0), name: 'المضيف' },
           hostSymbol: hostSymbolFromBtn,
           opp: null,
           oppSymbol: null,
@@ -609,8 +607,7 @@ bot.on('callback_query', async (query) => {
       }
 
       // منع المضيف من الانضمام كخصم
-      const isSameUser = Number(from.id) === Number(game.host?.id);
-      if (isSameUser) {
+      if (uid(from.id) === uid(game.host?.id)) {
         await bot.answerCallbackQuery(query.id, { text: 'أنت صاحب التحدي بالفعل.' });
         return;
       }
@@ -625,7 +622,7 @@ bot.on('callback_query', async (query) => {
       }
 
       // سجّل الخصم
-      game.opp = { id: from.id, name: from.first_name || from.username || 'لاعب' };
+      game.opp = { id: uid(from.id), name: from.first_name || from.username || 'لاعب' };
       game.oppSymbol = (game.hostSymbol === 'X') ? 'O' : 'X';
 
       // ✨ مهم: عيّن pX و pO ليستخدمهما هاندلر الحركات
@@ -694,10 +691,8 @@ bot.on('callback_query', async (query) => {
         return;
       }
 
-      const expectedId = game.turn === 'X'
-        ? (game.pX && game.pX.id)
-        : (game.pO && game.pO.id);
-      if (from.id !== expectedId) {
+      const expectedId = game.turn === 'X' ? uid(game.pX?.id) : uid(game.pO?.id);
+      if (uid(from.id) !== expectedId) {
         await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دورك الآن.' });
         return;
       }
