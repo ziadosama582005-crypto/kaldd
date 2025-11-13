@@ -586,7 +586,7 @@ bot.on('callback_query', async (query) => {
 
       let game = games[gameId];
 
-      // لو الذاكرة فاضية/البوت أعيد تشغيله — أعد بناء اللعبة من بيانات الزر
+      // إعادة بناء اللعبة لو الذاكرة فاضية
       if (!game) {
         game = {
           id: gameId,
@@ -597,8 +597,8 @@ bot.on('callback_query', async (query) => {
           board: newBoard(),
           turn: null,
           status: 'waiting',
+          // سيتم ربط الهدف أدناه
         };
-        // اربط الرسالة الحالية
         if (inline_message_id) {
           game.inline_message_id = inline_message_id;
         } else if (message) {
@@ -608,13 +608,15 @@ bot.on('callback_query', async (query) => {
         games[gameId] = game;
       }
 
-      if (game.status !== 'waiting') {
-        await bot.answerCallbackQuery(query.id, { text: '⚠️ هذا التحدي غير متاح الآن.' });
+      // منع المضيف من الانضمام كخصم
+      const isSameUser = Number(from.id) === Number(game.host?.id);
+      if (isSameUser) {
+        await bot.answerCallbackQuery(query.id, { text: 'أنت صاحب التحدي بالفعل.' });
         return;
       }
 
-      if (from.id === game.host.id) {
-        await bot.answerCallbackQuery(query.id, { text: 'أنت صاحب التحدي بالفعل.' });
+      if (game.status !== 'waiting') {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ هذا التحدي غير متاح الآن.' });
         return;
       }
       if (game.opp) {
@@ -622,39 +624,49 @@ bot.on('callback_query', async (query) => {
         return;
       }
 
-      // سجّل الخصم واربط الرمز
-      const oppSymbol = game.hostSymbol === 'X' ? 'O' : 'X';
+      // سجّل الخصم
       game.opp = { id: from.id, name: from.first_name || from.username || 'لاعب' };
-      game.oppSymbol = oppSymbol;
-      game.status = 'playing';
-      game.turn  = 'X';
+      game.oppSymbol = (game.hostSymbol === 'X') ? 'O' : 'X';
 
-      // تأكد من ربط الهدف
+      // ✨ مهم: عيّن pX و pO ليستخدمهما هاندلر الحركات
+      if (game.hostSymbol === 'X') {
+        game.pX = game.host;
+        game.pO = game.opp;
+      } else {
+        game.pX = game.opp;
+        game.pO = game.host;
+      }
+
+      // ابدأ المباراة
+      game.status = 'playing';
+      game.turn  = 'X';               // X يبدأ دائمًا
       const target = game.inline_message_id
         ? { inline_message_id: game.inline_message_id }
         : { chat_id: (game.chatId || message.chat.id), message_id: (game.messageId || message.message_id) };
 
-      const pXName = game.hostSymbol === 'X' ? game.host.name : game.opp.name;
-      const pOName = game.hostSymbol === 'O' ? game.host.name : game.opp.name;
       const header =
         `🎮 لعبة XO بدأت!
 ` +
-        `❌ ${pXName}
+        `❌ ${game.pX.name}
 ` +
-        `⭕ ${pOName}
+        `⭕ ${game.pO.name}
 ` +
-        `🎯 دور ${game.turn === 'X' ? pXName : pOName}`;
+        `🎯 دور ${game.turn === 'X' ? game.pX.name : game.pO.name}`;
 
       await bot.editMessageText(header, {
         ...target,
         reply_markup: renderBoardInline(gameId, game.board),
       });
 
-      await bot.answerCallbackQuery(query.id, { text: '✅ تم الانضمام. بدأت المباراة!' });
+      // تنبيه فوري لمن ضغط الزر بوضع الدور
+      await bot.answerCallbackQuery(query.id, {
+        text: `✅ تم الانضمام. الآن دور: ${game.turn === 'X' ? game.pX.name : game.pO.name}`,
+        show_alert: false,
+      });
       return;
     }
 
-    // -------- الحركات mv:gameId:i:j --------
+    // -------- تنفيذ حركة mv:gameId:i:j --------
     if (data && data.startsWith('mv:')) {
       const [, gameId, si, sj] = data.split(':');
       const i = Number(si);
@@ -682,17 +694,11 @@ bot.on('callback_query', async (query) => {
         return;
       }
 
-      // تحديد من يجب أن يلعب
-      const isXTurn = game.turn === 'X';
-      const currentPlayerId = isXTurn
-        ? (game.hostSymbol === 'X' ? game.host.id : game.opp.id)
-        : (game.hostSymbol === 'O' ? game.host.id : game.opp.id);
-
-      if (from.id !== currentPlayerId) {
-        await bot.answerCallbackQuery(query.id, {
-          text: '⚠️ ليس دورك الآن.',
-          show_alert: false,
-        });
+      const expectedId = game.turn === 'X'
+        ? (game.pX && game.pX.id)
+        : (game.pO && game.pO.id);
+      if (from.id !== expectedId) {
+        await bot.answerCallbackQuery(query.id, { text: '⚠️ ليس دورك الآن.' });
         return;
       }
 
@@ -720,13 +726,12 @@ bot.on('callback_query', async (query) => {
           pWinner.wins += 1;
           pLoser.losses += 1;
           rewardPlayer(pWinner, 10, { isWin: true });
-          // لا نخصم من الخاسر حالياً (تقدر تضيف لاحقاً)
 
           msg =
-            `🏆 انتهت المباراة!\n` +
+            `🏆 انتهت المباراة!
+` +
             `الفائز: ${winner.name} (${winnerSymbol === 'X' ? '❌' : '⭕'})`;
         } else {
-          // تعادل
           pHost.draws += 1;
           pOpp.draws += 1;
           rewardPlayer(pHost, 2);
@@ -754,8 +759,10 @@ bot.on('callback_query', async (query) => {
       const turnName = game.turn === 'X' ? pXName : pOName;
 
       const header =
-        `🎮 لعبة XO\n` +
-        `❌ ${pXName} — ⭕ ${pOName}\n` +
+        `🎮 لعبة XO
+` +
+        `❌ ${pXName} — ⭕ ${pOName}
+` +
         `🎯 دور ${turnName}`;
 
       await bot.editMessageText(header, {
