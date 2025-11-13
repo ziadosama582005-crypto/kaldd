@@ -258,7 +258,7 @@ function rewardPlayer(player, basePoints, { isWin = false, isLoss = false } = {}
 // {
 //   id,
 //   host: {id,name},
-//   hostSymbol: 'X' | 'O',
+//   hostSymbol: 'X' | 'O'',
 //   opp: {id,name} | null,
 //   oppSymbol: 'X'|'O'|null,
 //   board,
@@ -605,6 +605,14 @@ bot.on('callback_query', async (query) => {
         }
         games[gameId] = game;
       }
+
+      // إضافة سجلات لتتبع القيم
+      console.log('--- Attempting to join game ---');
+      console.log('Game ID:', gameId);
+      console.log('Host ID:', game.host?.id);
+      console.log('From ID:', from.id);
+      console.log('Game Status:', game.status);
+      console.log('Opponent:', game.opp);
 
       // منع المضيف من الانضمام كخصم
       if (uid(from.id) === uid(game.host?.id)) {
